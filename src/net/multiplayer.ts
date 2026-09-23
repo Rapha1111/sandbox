@@ -29,9 +29,19 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
 const FLUSH_DEBOUNCE_MS = 400;
 
+// This project's own deployed relay (see render.yaml / README "Déployer") — baked in as the
+// default so a Vercel deploy of the client works out of the box with zero configuration
+// (setting VITE_WS_URL there is otherwise an extra step some hosting plans charge for). Still
+// fully overridable via VITE_WS_URL for local testing against a different relay, or if this
+// project's own one ever moves.
+const DEFAULT_PROD_RELAY_URL = "wss://sandbox-relay.onrender.com";
+
 function resolveWsUrl(): string {
   const fromEnv = import.meta.env.VITE_WS_URL;
   if (typeof fromEnv === "string" && fromEnv) return fromEnv;
+  const isLocalHost = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  if (!isLocalHost) return DEFAULT_PROD_RELAY_URL;
+  // Local dev (npm run dev): guess a relay running alongside it (npm run server).
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${location.hostname}:8787`;
 }

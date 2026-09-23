@@ -48,26 +48,33 @@ Il faut donc **deux déploiements séparés** :
    très bien et a un plan gratuit :
    - Dashboard Render → **New** → **Blueprint** → pointez sur ce dépôt
      (le `render.yaml` à la racine le configure automatiquement : build
-     `npm install`, démarrage `npm run server:start`). Sans Blueprint,
-     créez un **Web Service** manuellement avec les mêmes commandes.
+     `npm install`, démarrage `npm run server:start`, nom de service
+     `sandbox-relay`). Sans Blueprint, créez un **Web Service**
+     manuellement avec les mêmes commandes.
    - Une fois déployé, Render donne une URL du genre
-     `https://sandbox-relay-xxxx.onrender.com` — le relais WebSocket est
-     joignable sur cette même adresse en `wss://` (même hôte, TLS géré
-     par Render).
+     `https://sandbox-relay.onrender.com` (ou avec un suffixe si ce nom
+     est déjà pris) — le relais WebSocket est joignable sur cette même
+     adresse en `wss://` (même hôte, TLS géré par Render).
    - (Le plan gratuit de Render met le service en veille après
      inactivité ; la première connexion après une pause prend quelques
      secondes le temps qu'il se réveille — normal pour un prototype.)
-2. **Le client** sur Vercel, avec la variable d'environnement
-   `VITE_WS_URL` réglée sur l'URL `wss://` obtenue à l'étape précédente
-   (Vercel → *Project Settings* → *Environment Variables* →
-   `VITE_WS_URL` = `wss://sandbox-relay-xxxx.onrender.com`). **Redéployez
-   ensuite le client** — Vite fige les variables `VITE_*` au moment du
-   build, donc juste ajouter la variable sans redéclencher un build ne
-   suffit pas.
+2. **Le client** sur Vercel — **aucune configuration requise** : le
+   client tombe par défaut sur `wss://sandbox-relay.onrender.com` (voir
+   `DEFAULT_PROD_RELAY_URL` dans `src/net/multiplayer.ts`) dès qu'il
+   tourne ailleurs qu'en local, donc un déploiement Vercel out-of-the-box
+   pointe déjà vers le relais officiel du projet sans qu'il soit besoin
+   de toucher aux variables d'environnement (pratique si votre plan
+   d'hébergement facture leur ajout). Si vous déployez votre **propre**
+   relais ailleurs, réglez `VITE_WS_URL` sur son URL `wss://` pour
+   remplacer ce défaut (Vercel → *Project Settings* → *Environment
+   Variables*, puis **redéployez** — Vite fige les variables `VITE_*`
+   au moment du build, donc juste ajouter la variable sans redéclencher
+   un build ne suffit pas).
 
-Une fois les deux en place, le badge du HUD passe à vert avec l'URL
-Render, et le code de salon partagé entre deux visiteurs les connecte
-bien. Voir « Multijoueur » ci-dessous pour les limites de ce relais.
+Une fois le relais en place (et, le cas échéant, `VITE_WS_URL` réglée +
+redéployée), le badge du HUD passe à vert avec l'URL du relais utilisée,
+et le code de salon partagé entre deux visiteurs les connecte bien. Voir
+« Multijoueur » ci-dessous pour les limites de ce relais.
 
 ## Ce qui est implémenté
 

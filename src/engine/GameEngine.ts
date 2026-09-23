@@ -135,9 +135,9 @@ export class GameEngine {
 
   /** A few pre-built, published objects so the world isn't empty on first launch (spec §29-31 examples). */
   private seedDemoObjects(playerId: PlayerId, houseId: HouseId): void {
-    const allFaces = (libName: string) => ({
-      top: libName, bottom: libName, front: libName, back: libName, left: libName, right: libName,
-    });
+    // Only "top" and "front" are ever assigned — "bottom" has no texture and
+    // "back"/"left"/"right" mirror "front" automatically (EDITABLE_FACE_NAMES).
+    const topAndFront = (libName: string) => ({ top: libName, front: libName });
     const publishAt = (
       name: string,
       script: string,
@@ -162,7 +162,7 @@ export class GameEngine {
         name,
         script,
         textureLibrary,
-        textures: allFaces("défaut"),
+        textures: topAndFront("défaut"),
         collidable: name !== "Ticket",
         dimensions: { width: 1, height: 1, depth: 1, ...dims },
       });
@@ -426,6 +426,9 @@ export class GameEngine {
   assignFaceTexture(defId: ObjectDefId, face: FaceName, name: string): { ok: boolean; reason?: string } {
     const def = this.defs.get(defId);
     if (!def) return { ok: false, reason: "Objet introuvable" };
+    if (face !== "top" && face !== "front") {
+      return { ok: false, reason: "Seules les faces 'top' et 'front' se peignent — les côtés copient 'front', 'bottom' n'a pas de texture" };
+    }
     if (!(name in def.textureLibrary)) return { ok: false, reason: "Texture introuvable dans la bibliothèque" };
     def.textures = { ...def.textures, [face]: name };
     def.updatedAt = Date.now();
@@ -438,6 +441,38 @@ export class GameEngine {
     if (!name) return undefined;
     const texId = def.textureLibrary[name];
     return texId ? this.textures.get(texId) : undefined;
+  }
+
+  /**
+   * Maps a physical box face to the face it actually reads texture state
+   * from: "bottom" never has one, and "back"/"left"/"right" always mirror
+   * "front" (see EDITABLE_FACE_NAMES). Returns null for "bottom".
+   */
+  private canonicalFace(face: FaceName): FaceName | null {
+    if (face === "bottom") return null;
+    if (face === "back" || face === "left" || face === "right") return "front";
+    return face;
+  }
+
+  /**
+   * What a given physical face is currently showing (script override, else
+   * the def's default), honouring the mirroring rules above. Shared by the
+   * 3D renderer and by object.get_texture()/set_texture() so the two can
+   * never drift out of sync.
+   */
+  resolveVisibleTextureName(def: ObjectDefinition, instance: ObjectInstance, face: FaceName): string | null {
+    const canonical = this.canonicalFace(face);
+    if (!canonical) return null;
+    return (
+      (instance.state[`textureOverride_${canonical}`] as string | undefined) ??
+      (instance.state["textureOverride___all__"] as string | undefined) ??
+      def.textures[canonical] ??
+      null
+    );
+  }
+
+  resolveVisibleTexture(def: ObjectDefinition, instance: ObjectInstance, face: FaceName): Texture | undefined {
+    return this.resolveLibraryTexture(def, this.resolveVisibleTextureName(def, instance, face) ?? undefined);
   }
 
   // ---------------------------------------------------------------------
@@ -596,24 +631,29 @@ export class GameEngine {
         this.notify();
       },
       setTexture: (a, b) => {
-        const face = b ? a : "__all__";
+        const hasFace = Boolean(b);
+        const face = hasFace ? a : undefined;
         const name = b ?? a;
+        if (hasFace && face !== "top" && face !== "front") {
+          throw new ScriptRuntimeError(
+            `object.set_texture(face, nom): seules les faces 'top' et 'front' existent — les côtés copient` +
+              ` automatiquement 'front' et 'bottom' n'a pas de texture. Appelez object.set_texture(nom) sans face pour tout changer d'un coup.`
+          );
+        }
         if (!(name in def.textureLibrary)) {
           throw new ScriptRuntimeError(
             `Texture inconnue: '${name}'. Créez-la dans l'onglet Textures ou consultez object.get_texture().`
           );
         }
-        instance.state[`textureOverride_${face}`] = name;
+        instance.state[`textureOverride_${hasFace ? face : "__all__"}`] = name;
         this.notify();
       },
       getTexture: (face) => {
         if (face) {
-          return (
-            (instance.state[`textureOverride_${face}`] as string | undefined) ??
-            (instance.state["textureOverride___all__"] as string | undefined) ??
-            def.textures[face as FaceName] ??
-            null
-          );
+          if (face !== "top" && face !== "front" && face !== "back" && face !== "left" && face !== "right" && face !== "bottom") {
+            throw new ScriptRuntimeError(`Face inconnue: '${face}'`);
+          }
+          return this.resolveVisibleTextureName(def, instance, face as FaceName);
         }
         return (instance.state["textureOverride___all__"] as string | undefined) ?? null;
       },

@@ -90,14 +90,15 @@ export const API_REFERENCE: ApiEntry[] = [
     group: "object",
     signature: 'object.set_texture(nom)',
     description:
-      'Change l\'apparence (toutes les faces) pour la texture "nom" de la bibliothèque de cet objet (voir onglet Textures).',
+      'Change l\'apparence pour la texture "nom" de la bibliothèque de cet objet (haut + avant, les côtés copiant l\'avant). "bottom" n\'a jamais de texture.',
     kind: "local",
     example: 'object.set_texture("actif")',
   },
   {
     group: "object",
     signature: 'object.set_texture(face, nom)',
-    description: 'Change uniquement une face ("top"/"bottom"/"front"/"back"/"left"/"right").',
+    description:
+      'Change uniquement "top" ou "front" — un objet ne se peint que sur ces deux faces : "bottom" n\'a jamais de texture, et "back"/"left"/"right" copient toujours "front" automatiquement.',
     kind: "local",
     example: 'object.set_texture("front", "ouvert")',
   },
@@ -110,7 +111,8 @@ export const API_REFERENCE: ApiEntry[] = [
   {
     group: "object",
     signature: "object.get_texture(face)",
-    description: "Retourne le nom de la texture actuellement affichée sur cette face.",
+    description:
+      'Retourne le nom de la texture actuellement affichée sur cette face ("top"/"bottom"/"front"/"back"/"left"/"right" — "bottom" retourne toujours None, et "back"/"left"/"right" retournent la texture de "front").',
     kind: "local",
     example: 'if object.get_texture() == "actif":\n    object.set_texture("défaut")',
   },

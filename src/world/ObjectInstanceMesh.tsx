@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import type { FaceName, ObjectDefinition, ObjectInstance } from "../engine/types";
-import { engine } from "../data/store";
+import { engine, useGameStore } from "../data/store";
 import { fallbackColorTexture, pixelsToThreeTexture } from "./textureUtils";
 
 const FACE_ORDER: FaceName[] = ["right", "left", "top", "bottom", "front", "back"];
@@ -29,17 +29,19 @@ export function ObjectInstanceMesh({
 }) {
   const { width, height, depth } = def.dimensions;
   const fallback = useMemo(() => fallbackColorTexture(hashColor(def.id)), [def.id]);
+  // GameEngine mutates def/instance in place rather than replacing them, so those objects'
+  // references never change — `tick` (bumped on every engine.notify()) is what actually makes
+  // this recompute when a script changes a texture on an already-mounted instance.
+  const tick = useGameStore((s) => s.tick);
 
   const materials = useMemo(() => {
     return FACE_ORDER.map((face) => {
-      const name = (instance.state[`textureOverride_${face}`] as string | undefined)
-        ?? (instance.state["textureOverride___all__"] as string | undefined)
-        ?? def.textures[face];
-      const tex = engine.resolveLibraryTexture(def, name);
+      const tex = engine.resolveVisibleTexture(def, instance, face);
       const map = tex ? pixelsToThreeTexture(tex) : fallback;
       return new THREE.MeshLambertMaterial({ map });
     });
-  }, [def, instance.state, fallback]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [def, instance, fallback, tick]);
 
   if (instance.location.kind !== "house") return null;
   const { x, z, rotationY } = instance.location;

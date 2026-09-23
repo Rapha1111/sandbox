@@ -19,8 +19,16 @@ export interface Texture {
   updatedAt: number;
 }
 
+/** The 6 physical faces of the box mesh a rendered instance actually has. */
 export type FaceName = "top" | "bottom" | "front" | "back" | "left" | "right";
-export const FACE_NAMES: FaceName[] = ["top", "bottom", "front", "back", "left", "right"];
+/**
+ * Faces a creator actually paints. To keep the pixel-art workload small,
+ * "bottom" never has a texture (it faces the floor, so it's never seen) and
+ * "back"/"left"/"right" always mirror whatever is painted on "front" — so
+ * only these two need drawing. See ObjectInstanceMesh's face resolution and
+ * GameEngine's set_texture/get_texture hooks for where this is enforced.
+ */
+export const EDITABLE_FACE_NAMES: FaceName[] = ["top", "front"];
 
 export interface Dimensions {
   width: number; // X

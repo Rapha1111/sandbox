@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { python } from "@codemirror/lang-python";
-import { FACE_NAMES, type FaceName, type ObjectDefinition, type Texture } from "../engine/types";
+import { EDITABLE_FACE_NAMES, type FaceName, type ObjectDefinition, type Texture } from "../engine/types";
 import { engine, useGameStore, closeEditor, toggleApiHelp } from "../data/store";
 import { PixelArtEditor } from "./PixelArtEditor";
 import { DebugConsole } from "./DebugConsole";
@@ -9,13 +9,11 @@ import "./ObjectCreator.css";
 
 type Tab = "info" | "textures" | "script";
 
-const FACE_LABEL: Record<FaceName, string> = {
+// Only "top" and "front" are ever painted — "bottom" has no texture and
+// "back"/"left"/"right" always mirror "front" (see EDITABLE_FACE_NAMES).
+const FACE_LABEL: Partial<Record<FaceName, string>> = {
   top: "Haut",
-  bottom: "Bas",
-  front: "Avant",
-  back: "Arrière",
-  left: "Gauche",
-  right: "Droite",
+  front: "Avant (copiée sur les côtés)",
 };
 
 const TESTABLE_EVENTS = ["on_interact", "on_create", "on_player_enter", "on_tick", "on_destroy"];
@@ -134,7 +132,7 @@ export function ObjectCreator() {
             <div className="object-creator__textures">
               <div className="object-creator__textures-main">
                 <div className="object-creator__faces">
-                  {FACE_NAMES.map((f) => (
+                  {EDITABLE_FACE_NAMES.map((f) => (
                     <button
                       key={f}
                       className={f === face && !editingName ? "object-creator__face object-creator__face--active" : "object-creator__face"}

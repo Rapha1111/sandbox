@@ -27,15 +27,18 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
   personnalisées, placement depuis l'inventaire par clic au sol, ramassage
   par clic droit sur un objet placé.
 - **Textures pixel art (P2)** — chaque objet a sa propre **bibliothèque de
-  textures nommées** (onglet Textures : grille des 6 faces + section
+  textures nommées** (onglet Textures : grille de faces + section
   "Bibliothèque" pour créer/renommer/supprimer des textures additionnelles,
-  ex. "ouvert"/"fermé"). Éditeur par texture : tailles 8/16/32/64, crayon,
-  gomme, remplissage (flood fill), pipette, palette + couleur personnalisée,
-  miroir, rotation 90°, annuler/rétablir, aperçu en direct, rendu en jeu via
-  `CanvasTexture` (filtrage "nearest" pour un rendu net). Un script peut
-  changer l'apparence de son objet à l'exécution avec
-  `object.set_texture("nom")` (ou `object.set_texture("face", "nom")` pour
-  une seule face) et lire l'état actuel avec `object.get_texture()`.
+  ex. "ouvert"/"fermé"). Pour limiter le travail de dessin, **seules "haut"
+  et "avant" se peignent** — "bas" n'a jamais de texture (jamais visible) et
+  "arrière"/"gauche"/"droite" copient automatiquement "avant". Éditeur par
+  texture : tailles 8/16/32/64, crayon, gomme, remplissage (flood fill),
+  pipette, palette + couleur personnalisée, miroir, rotation 90°,
+  annuler/rétablir, aperçu en direct, rendu en jeu via `CanvasTexture`
+  (filtrage "nearest" pour un rendu net). Un script peut changer l'apparence
+  de son objet à l'exécution avec `object.set_texture("nom")` (ou
+  `object.set_texture("top"|"front", "nom")` pour une seule des deux faces
+  peignables) et lire l'état actuel avec `object.get_texture()`.
 - **Langage de script (P3)** — sous-ensemble de Python maison
   (`src/script-lang`) : `def`, `if/elif/else`, `for`/`while`/`range`,
   `and/or/not`, opérateurs de comparaison/arithmétique, appels de

@@ -23,7 +23,10 @@ joueurs réels. Lancez les deux commandes dans deux terminaux séparés pour
 tester en multijoueur ; ouvrez ensuite `http://localhost:5173` dans deux
 navigateurs (ou deux fenêtres de navigation privée — l'identité de chacun
 vit dans `localStorage`, donc deux onglets du même navigateur non-privé
-partageraient la même identité).
+partageraient la même identité), puis donnez le code affiché par le
+bouton **🔑** d'une des deux sessions à l'autre via son champ « Rejoindre »
+(voir « Multijoueur » ci-dessous — sans ça, les deux restent chacune dans
+leur propre salon et ne se voient pas).
 
 Pour un déploiement (ex. le client sur Vercel), pointez le client vers un
 serveur de relais accessible publiquement avec la variable d'env Vite
@@ -45,9 +48,10 @@ build`) — voir « Multijoueur » pour les limites de ce relais.
   transperçable comme un ticket, et `player.request_money()`/
   `player.request_object()` (ou un dépôt manuel via le panneau Inventaire)
   y échouent immédiatement puisqu'il ne peut rien stocker. Clic droit sur
-  un objet placé que vous possédez → menu contextuel **⚙️ Paramètres
-  (fire `on_settings`) / [Inventaire — uniquement pour un bloc] / Déplacer
-  / Récupérer** (voir plus bas).
+  n'importe quel objet placé (le vôtre, ou celui d'un autre membre de
+  votre salon multijoueur — voir « Multijoueur ») → menu contextuel
+  **⚙️ Paramètres (fire `on_settings`) / [Inventaire — uniquement pour un
+  bloc] / Déplacer / Récupérer** (voir plus bas).
 - **Déplacement & placement** — cliquer sur un objet (le vôtre ou celui
   d'un autre joueur) fait marcher votre personnage jusque devant lui à
   vitesse normale avant de déclencher `on_interact` — jamais de
@@ -99,10 +103,11 @@ build`) — voir « Multijoueur » pour les limites de ce relais.
   numérique borné — passez `True` en 4ᵉ argument pour l'afficher comme un
   curseur/slider à la place). Toutes (sauf `ask_yes_no`) retournent un objet
   `.accepted`/`.value`, `.accepted` étant `False` si le joueur annule.
-- **Économie & transactions (P4)** — monnaie (`Coin`), inventaire par
-  empilement d'instances, `player.request_money(montant)` ouvre une modale
-  de confirmation ; la transaction (vérification du solde + débit) est
-  atomique côté moteur — jamais de duplication/disparition d'argent.
+- **Économie & transactions (P4)** — monnaie (`Coin`, 5000 au départ),
+  inventaire par empilement d'instances, `player.request_money(montant)`
+  ouvre une modale de confirmation ; la transaction (vérification du
+  solde + débit) est atomique côté moteur — jamais de
+  duplication/disparition d'argent.
 - **Objets stockés dans les machines** — symétrique à `request_money`,
   `player.request_object(nom_objet)` demande au joueur de céder un
   exemplaire depuis son inventaire ; s'il accepte, l'exemplaire est retiré
@@ -113,20 +118,23 @@ build`) — voir « Multijoueur » pour les limites de ce relais.
   que si le créateur de la machine est aussi le créateur de l'objet donné
   — impossible donc de faire distribuer à l'infini par une machine la
   création de quelqu'un d'autre sans qu'elle l'ait réellement en stock.
-- **Gestion d'un objet placé** — clic droit sur un bloc que vous possédez
-  ouvre un menu à trois entrées : **📦 Inventaire** (voir ci-dessous),
-  **✋ Déplacer** (le reprendre puis cliquer un nouvel emplacement — son
-  solde et son contenu suivent, rien n'est perdu) et **↩️ Récupérer**.
-  Aucune des deux n'est destructrice : « Récupérer » rend le bloc
-  lui-même à votre inventaire (comme un ramassage), après y avoir d'abord
-  reversé tout l'argent qu'il avait collecté (`object.get_balance()`) et
-  tous les objets qui étaient stockés dedans — rien n'est jamais perdu,
-  ni l'argent, ni les objets, ni le bloc.
-- **📦 Inventaire d'un objet placé** — panneau dédié pour gérer directement
-  le contenu d'une machine que vous possédez, sans passer par un script :
-  déposer/retirer des coins (comme pour `player.request_money`/
-  `object.send_money`, mais en action directe, sans confirmation puisque
-  c'est votre propre bien), et déposer/retirer des objets un peu comme
+- **Gestion d'un objet placé** — clic droit sur n'importe quel bloc placé
+  (chez vous ou chez un autre membre de votre salon) ouvre un menu à
+  trois entrées : **📦 Inventaire** (voir ci-dessous), **✋ Déplacer** (le
+  reprendre puis cliquer un nouvel emplacement — son solde et son contenu
+  suivent, rien n'est perdu) et **↩️ Récupérer**. Aucune des deux n'est
+  destructrice : « Récupérer » rend le bloc lui-même à *votre* inventaire
+  (à celui de qui le récupère — même si ce n'est pas son créateur
+  d'origine), après y avoir d'abord reversé tout l'argent qu'il avait
+  collecté (`object.get_balance()`) et tous les objets qui étaient
+  stockés dedans — rien n'est jamais perdu, ni l'argent, ni les objets,
+  ni le bloc.
+- **📦 Inventaire d'un objet placé** — panneau dédié pour gérer
+  directement le contenu de n'importe quelle machine placée, sans passer
+  par un script : déposer/retirer des coins (comme pour
+  `player.request_money`/`object.send_money`, mais en action directe,
+  sans confirmation puisqu'un membre du salon gère un bien du salon), et
+  déposer/retirer des objets un peu comme
   `player.request_object`/`object.give_item`, mais initié par vous plutôt
   que par le script de la machine.
 - **Identifiant unique** — chaque définition publiée (`def.id`) a un
@@ -170,54 +178,65 @@ de créer ses propres objets via l'Object Creator dès la première session.
 
 Chaque navigateur obtient une identité stable (générée une fois, stockée
 dans `localStorage` séparément de la sauvegarde de monde — voir
-`src/net/identity.ts`) et sa **propre maison**. Toutes les maisons sont
-alignées côte à côte dans une même rue ; on en sort par le côté ouvert
-(sud, sans mur) pour aller visiter celle des autres.
+`src/net/identity.ts`) et sa **propre maison**. Toutes les maisons d'un
+même **salon** sont alignées côte à côte dans une rue ; on en sort par le
+côté ouvert (sud, sans mur) pour aller chez les autres.
 
-- **Visiter** — se promener dans la maison d'un autre joueur est
-  totalement libre : ses blocs bloquent le passage comme les vôtres,
-  vous pouvez cliquer dessus pour déclencher `on_interact` (payer un
-  distributeur, lire un panneau, etc.) exactement comme chez vous.
-- **Modifier reste impossible ailleurs que chez soi** — placer, déplacer
-  ou récupérer un bloc n'est jamais possible dans la maison d'un autre :
-  l'UI ne câble le clic-au-sol de placement que pour votre propre maison,
-  et `GameEngine.placeFromInventory`/`moveInstance` vérifient en plus
-  côté moteur que l'appelant possède bien la maison ciblée (défense en
-  profondeur, utile le jour où un vrai serveur validera ces appels).
-  Le menu contextuel (clic droit) ne s'ouvre de toute façon que sur vos
-  propres blocs.
+- **Le code de salon, tout le modèle de confiance** (`src/net/room.ts`)
+  — à la première visite, chaque navigateur génère et garde son propre
+  code (6 caractères, bouton **🔑** du HUD). Le donner à quelqu'un
+  (bouton **Rejoindre**, ou l'entrer directement) fait rejoindre son
+  salon : c'est la façon dont le serveur sait que « ces deux joueurs se
+  connaissent ». Le serveur ne mélange jamais les données de deux salons
+  différents — sans le code de quelqu'un, vous ne voyez ni n'affectez
+  rien chez lui.
+- **Visiter ET modifier** — une fois dans le même salon, il n'y a plus
+  de distinction chez-soi/chez-l'autre : marcher, interagir (`on_interact`),
+  mais aussi **placer, déplacer, récupérer n'importe quel bloc, et gérer
+  son inventaire (dépôt/retrait d'argent ou d'objets)** fonctionnent
+  aussi bien dans sa propre maison que dans celle d'un autre membre du
+  salon. C'est un choix délibéré de simplicité (spec : « il est possible
+  pour n'importe quel joueur de modifier la maison de quelqu'un
+  d'autre ») — le code de salon est la seule barrière de confiance,
+  aucune vérification de propriété par bloc une fois dedans.
+- **Changer de salon** — rejoindre un autre code oublie d'abord tout ce
+  que vous saviez des membres du salon précédent (`GameEngine.pruneToLocalOnly`)
+  avant de se reconnecter, pour ne jamais laisser une maison périmée
+  traîner à l'écran.
 - **Agrandir sa maison** — bouton **🏡 Agrandir** dans le HUD : contre un
   nombre de pièces croissant (100, 160, 220…), la maison grandit de 2×2.
   Les maisons voisines (dans l'ordre d'arrivée) se décalent en
   conséquence pour ne jamais se chevaucher.
 - **Ce qui se synchronise** — argent, inventaire, objets créés/publiés et
-  disposition des objets dans votre maison. Toute action qui modifie
-  quelque chose (y compris chez un autre : payer sa machine, y déposer un
-  objet) est envoyée au serveur de relais, qui la retransmet à tout le
-  monde ; à la connexion, votre navigateur envoie d'abord un instantané
-  complet de ce qu'il sait de vous-même. Les bulles de dialogue
-  (`player.say`) sont aussi relayées en direct, sans être sauvegardées.
+  disposition des objets dans sa maison (ou celle d'un autre membre du
+  salon, désormais). Toute action qui modifie quelque chose est envoyée
+  au serveur de relais, qui la retransmet au reste du salon ; à la
+  connexion, votre navigateur envoie d'abord un instantané complet de ce
+  qu'il sait de vous-même. Les bulles de dialogue (`player.say`) sont
+  aussi relayées en direct, sans être sauvegardées.
 
 **Comment c'est fait (`server/index.ts`, `src/net/`)** — le serveur est
 volontairement « bête » : il ne fait tourner aucune logique de jeu
-(aucun script, aucune règle d'économie), juste (1) attribuer une place
-stable dans la rue la première fois qu'il voit un joueur, et (2) stocker
-la dernière version connue de chaque entité (joueur/maison/objet/texture/
-instance) et la retransmettre — dernier arrivé, dernier servi, par
-entité, en mémoire seulement (un redémarrage du serveur oublie tout, sans
-gravité puisque chaque client renvoie sa propre part au reconnect).
-`GameEngine` reste la même classe framework-agnostique : chaque
-navigateur fait tourner sa **propre copie complète** du moteur (tous les
-joueurs, toutes les maisons) et applique lui-même les scripts qu'il
-déclenche ; rien ne s'exécute côté serveur. C'est un raccourci délibéré
-de prototype — comme le rappelle la demande d'origine, une vraie
-architecture réseau demandera un serveur qui simule réellement le monde
-et fait autorité sur les scripts (surtout les actions sensibles comme
-`object.give_item`/`spawn`), avec une vraie base de données à la place de
-la `Map` en mémoire du relais actuel. Pour l'instant, un client mal
-intentionné pourrait en théorie envoyer un instantané mensonger — il n'y
-a pas encore de validation autoritaire côté serveur, seulement les
-vérifications de propriété déjà en place côté moteur.
+(aucun script, aucune règle d'économie), juste, **par salon** : (1)
+attribuer une place stable dans la rue la première fois qu'il y voit un
+joueur, et (2) stocker la dernière version connue de chaque entité
+(joueur/maison/objet/texture/instance) et la retransmettre au reste du
+salon — dernier arrivé, dernier servi, par entité, en mémoire seulement
+(un redémarrage du serveur oublie tout, sans gravité puisque chaque
+client renvoie sa propre part au reconnect). `GameEngine` reste la même
+classe framework-agnostique : chaque navigateur fait tourner sa **propre
+copie complète** du moteur (tous les joueurs, toutes les maisons de son
+salon) et applique lui-même les scripts qu'il déclenche ; rien ne
+s'exécute côté serveur. C'est un raccourci délibéré de prototype —
+comme le rappelle la demande d'origine, une vraie architecture réseau
+demandera un serveur qui simule réellement le monde et fait autorité sur
+les scripts (surtout les actions sensibles comme `object.give_item`/
+`spawn`), avec une vraie base de données à la place des `Map` en mémoire
+du relais actuel. Pour l'instant, un client mal intentionné pourrait en
+théorie envoyer un instantané mensonger, ou rejoindre le salon de
+n'importe qui en devinant/volant son code — il n'y a pas encore de
+validation autoritaire côté serveur, et plus aucune vérification de
+propriété par bloc côté moteur non plus (voir ci-dessus).
 
 ## Architecture
 
@@ -299,13 +318,20 @@ objets de test plutôt que de s'appuyer sur des objets pré-publiés.
    par absence de la classe `inventory__id` dans le DOM) ; l'identifiant
    de définition reste visible dans l'Object Creator.
 10. Multijoueur (deux contextes de navigateur, deux identités, serveur de
-    relais lancé) : le second joueur apparaît dans sa propre maison,
-    séparée de celle du premier par la rue ; le premier joueur peut
-    marcher jusque chez le second (visible en direct, avatar + nom) ;
-    tenter de placer un objet dans la maison du second échoue
-    silencieusement (le mode "placement" reste actif) alors que le même
-    clic fonctionne chez soi ; l'indicateur de présence du HUD affiche le
-    bon nombre de joueurs en ligne des deux côtés.
+    relais lancé, chacune dans son propre salon par défaut) : avant de
+    partager leur code, les deux sessions affichent bien 0 joueur en
+    ligne malgré le serveur actif (salons différents = isolation totale).
+    Après que la seconde rejoint le code de la première (bouton 🔑 →
+    Rejoindre), le second joueur apparaît dans sa propre maison, séparée
+    de celle du premier par la rue ; le premier peut marcher jusque chez
+    le second (visible en direct, avatar + nom) ; placer un objet
+    directement dans la maison de l'autre depuis son propre inventaire
+    réussit (plus de restriction chez-soi/chez-l'autre), et faire un
+    clic droit dessus depuis l'écran de l'autre joueur ouvre le menu
+    complet (Paramètres/Inventaire/Déplacer/Récupérer) — « Récupérer »
+    transfère bien l'objet dans l'inventaire de celui qui l'a récupéré,
+    pas de son créateur d'origine ; l'indicateur de présence du HUD
+    affiche le bon nombre de joueurs en ligne des deux côtés.
 11. Agrandissement : cliquer **🏡 Agrandir** débite le coût affiché
     (croissant à chaque fois : 100, 160, 220…), la maison grandit
     visiblement de 2×2, et le bouton se désactive dès que le solde du

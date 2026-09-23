@@ -3,10 +3,12 @@ import { GameEngine } from "../engine/GameEngine";
 import { LocalStorageSaveManager } from "../engine/save";
 import { getOrCreateLocalIdentity } from "../net/identity";
 import { connectMultiplayer } from "../net/multiplayer";
+import { getOrCreateRoomCode, setRoomCode as persistRoomCode } from "../net/room";
 
 export const localIdentity = getOrCreateLocalIdentity();
 export const engine = new GameEngine(new LocalStorageSaveManager(), localIdentity.id, localIdentity.name);
-const multiplayer = connectMultiplayer(engine, localIdentity);
+const initialRoomCode = getOrCreateRoomCode();
+const multiplayer = connectMultiplayer(engine, localIdentity, initialRoomCode);
 
 interface UiState {
   /** Bumped on every engine change so components subscribed via useGameStore re-render. */
@@ -25,6 +27,8 @@ interface UiState {
   /** Multiplayer relay connection (server/index.ts) — see src/net/multiplayer.ts. */
   mpConnected: boolean;
   onlinePlayerIds: string[];
+  /** The room code (src/net/room.ts) this browser is currently in — the whole access-control model. */
+  roomCode: string;
   /**
    * A script called object.teleport_to() and asked to walk the given player to a spot
    * (house-local coordinates — the target house isn't necessarily the one they're in right
@@ -49,6 +53,7 @@ export const useGameStore = create<UiState>()(() => ({
   viewingInstanceInventoryId: null,
   mpConnected: false,
   onlinePlayerIds: [],
+  roomCode: initialRoomCode,
   pendingWalkRequest: null,
 }));
 
@@ -57,8 +62,14 @@ engine.subscribe(() => {
 });
 
 multiplayer.subscribe((state) => {
-  useGameStore.setState({ mpConnected: state.connected, onlinePlayerIds: [...state.onlinePlayerIds] });
+  useGameStore.setState({ mpConnected: state.connected, onlinePlayerIds: [...state.onlinePlayerIds], roomCode: state.roomCode });
 });
+
+/** Leaves the current room and joins another — share your own code with a friend, or enter theirs. */
+export function joinRoom(code: string): void {
+  const normalized = persistRoomCode(code);
+  multiplayer.setRoom(normalized);
+}
 
 engine.setOnRequestWalk((playerId, houseId, x, z) => {
   useGameStore.setState({ pendingWalkRequest: { forPlayerId: playerId, houseId, x, z } });

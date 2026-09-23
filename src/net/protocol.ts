@@ -27,7 +27,11 @@ export function isPatchEmpty(patch: WorldPatch): boolean {
 }
 
 export type ClientMessage =
-  | { type: "hello"; playerId: string; name: string }
+  // roomCode is the whole access-control model here (see src/net/room.ts): the server groups
+  // connections by it, and never mixes entities between rooms — knowing a code is what "two
+  // players know each other" means (spec: le code permet au serveur de savoir qu'ils se
+  // connaissent). Once in the same room, nothing else is checked: anyone can edit anyone's house.
+  | { type: "hello"; playerId: string; name: string; roomCode: string }
   | { type: "sync"; patch: WorldPatch }
   | { type: "speech"; targetInstanceId: string; text: string };
 

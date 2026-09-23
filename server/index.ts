@@ -1,13 +1,16 @@
 // The "beginning of multiplayer" relay (see README "Multijoueur"). Deliberately dumb: it
 // does not run any game logic (no scripts, no economy rules) — each connected browser runs
 // its own full copy of GameEngine and is trusted to compute its own mutations correctly
-// (exactly what "prototype" means here). This process only does two authoritative things:
-//   1. hand out a stable, unique house slot (left-to-right position in the street) the first
-//      time it ever sees a given player id,
-//   2. store the latest version of every entity any client has pushed, and relay it to
-//      everyone else — last write wins, per entity, forever (in memory only: restarting this
-//      process forgets everything, which is fine since every client re-pushes its own slice
-//      the moment it reconnects).
+// (exactly what "prototype" means here). This process only does two authoritative things,
+// scoped to a *room* (a short code one player gives another — see src/net/room.ts, the whole
+// access-control model: knowing the code is what "these players know each other" means, and
+// nothing else is checked once you're in a room together — any member can edit anyone's house):
+//   1. within a room, hand out a stable, unique house slot (left-to-right position in that
+//      room's street) the first time it ever sees a given player id there,
+//   2. store the latest version of every entity any room member has pushed, and relay it to
+//      the rest of that room — last write wins, per entity, forever (in memory only, per room:
+//      restarting this process forgets everything, which is fine since every client re-pushes
+//      its own slice the moment it reconnects).
 // A real backend would replace this with an authoritative simulation and a database; nothing
 // in the client depends on *how* this process is implemented, only on the protocol in
 // src/net/protocol.ts — same boundary GameEngine's own save.ts draws for persistence.
@@ -25,56 +28,73 @@ interface Store {
   instances: Map<string, WorldPatch["instances"][number]>;
 }
 
-const store: Store = {
-  players: new Map(),
-  houses: new Map(),
-  defs: new Map(),
-  textures: new Map(),
-  instances: new Map(),
-};
+function emptyStore(): Store {
+  return { players: new Map(), houses: new Map(), defs: new Map(), textures: new Map(), instances: new Map() };
+}
 
-const slotByPlayer = new Map<string, number>();
-let nextSlot = 0;
+interface Room {
+  store: Store;
+  slotByPlayer: Map<string, number>;
+  nextSlot: number;
+  socketPlayer: Map<WebSocket, string>;
+  socketsByPlayer: Map<string, Set<WebSocket>>;
+}
 
-function assignSlot(playerId: string): number {
-  const existing = slotByPlayer.get(playerId);
+function emptyRoom(): Room {
+  return { store: emptyStore(), slotByPlayer: new Map(), nextSlot: 0, socketPlayer: new Map(), socketsByPlayer: new Map() };
+}
+
+const rooms = new Map<string, Room>();
+
+function getOrCreateRoom(code: string): Room {
+  let room = rooms.get(code);
+  if (!room) {
+    room = emptyRoom();
+    rooms.set(code, room);
+  }
+  return room;
+}
+
+function assignSlot(room: Room, playerId: string): number {
+  const existing = room.slotByPlayer.get(playerId);
   if (existing !== undefined) return existing;
-  const slot = nextSlot++;
-  slotByPlayer.set(playerId, slot);
+  const slot = room.nextSlot++;
+  room.slotByPlayer.set(playerId, slot);
   return slot;
 }
 
-function fullWorld(): WorldPatch {
+function fullWorld(room: Room): WorldPatch {
   return {
-    players: [...store.players.values()],
-    houses: [...store.houses.values()],
-    defs: [...store.defs.values()],
-    textures: [...store.textures.values()],
-    instances: [...store.instances.values()],
+    players: [...room.store.players.values()],
+    houses: [...room.store.houses.values()],
+    defs: [...room.store.defs.values()],
+    textures: [...room.store.textures.values()],
+    instances: [...room.store.instances.values()],
   };
 }
 
-function mergePatch(patch: WorldPatch): void {
-  for (const p of patch.players) store.players.set(p.id, p);
-  for (const h of patch.houses) store.houses.set(h.id, h);
-  for (const d of patch.defs) store.defs.set(d.id, d);
-  for (const t of patch.textures) store.textures.set(t.id, t);
-  for (const i of patch.instances) store.instances.set(i.id, i);
+function mergePatch(room: Room, patch: WorldPatch): void {
+  for (const p of patch.players) room.store.players.set(p.id, p);
+  for (const h of patch.houses) room.store.houses.set(h.id, h);
+  for (const d of patch.defs) room.store.defs.set(d.id, d);
+  for (const t of patch.textures) room.store.textures.set(t.id, t);
+  for (const i of patch.instances) room.store.instances.set(i.id, i);
 }
-
-const socketPlayer = new Map<WebSocket, string>();
-const socketsByPlayer = new Map<string, Set<WebSocket>>();
 
 function send(ws: WebSocket, msg: ServerMessage): void {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
 }
 
-function broadcast(msg: ServerMessage, exclude?: WebSocket): void {
+function broadcast(room: Room, msg: ServerMessage, exclude?: WebSocket): void {
   const payload = JSON.stringify(msg);
-  for (const ws of socketPlayer.keys()) {
+  for (const ws of room.socketPlayer.keys()) {
     if (ws !== exclude && ws.readyState === ws.OPEN) ws.send(payload);
   }
 }
+
+// Which room each live socket currently belongs to — a socket only ever sends messages other
+// than "hello" after joining one, but message handling needs to look the room back up.
+const roomBySocket = new Map<WebSocket, string>();
 
 const wss = new WebSocketServer({ port: PORT });
 
@@ -88,41 +108,61 @@ wss.on("connection", (ws) => {
     }
 
     if (msg.type === "hello") {
-      socketPlayer.set(ws, msg.playerId);
-      let sockets = socketsByPlayer.get(msg.playerId);
-      if (!sockets) { sockets = new Set(); socketsByPlayer.set(msg.playerId, sockets); }
+      const roomCode = msg.roomCode;
+      roomBySocket.set(ws, roomCode);
+      const room = getOrCreateRoom(roomCode);
+
+      room.socketPlayer.set(ws, msg.playerId);
+      let sockets = room.socketsByPlayer.get(msg.playerId);
+      if (!sockets) { sockets = new Set(); room.socketsByPlayer.set(msg.playerId, sockets); }
       const wasOnline = sockets.size > 0;
       sockets.add(ws);
 
-      const slotIndex = assignSlot(msg.playerId);
-      send(ws, { type: "welcome", slotIndex, world: fullWorld(), online: [...socketsByPlayer.keys()].filter((id) => (socketsByPlayer.get(id)?.size ?? 0) > 0) });
-      if (!wasOnline) broadcast({ type: "presence", playerId: msg.playerId, online: true }, ws);
+      const slotIndex = assignSlot(room, msg.playerId);
+      send(ws, {
+        type: "welcome",
+        slotIndex,
+        world: fullWorld(room),
+        online: [...room.socketsByPlayer.keys()].filter((id) => (room.socketsByPlayer.get(id)?.size ?? 0) > 0),
+      });
+      if (!wasOnline) broadcast(room, { type: "presence", playerId: msg.playerId, online: true }, ws);
       return;
     }
 
+    const roomCode = roomBySocket.get(ws);
+    const room = roomCode ? rooms.get(roomCode) : undefined;
+    if (!room) return; // no "hello" (and therefore no room) yet — ignore
+
     if (msg.type === "sync") {
       if (isPatchEmpty(msg.patch)) return;
-      mergePatch(msg.patch);
-      broadcast({ type: "patch", patch: msg.patch }, ws);
+      mergePatch(room, msg.patch);
+      broadcast(room, { type: "patch", patch: msg.patch }, ws);
       return;
     }
 
     if (msg.type === "speech") {
-      broadcast({ type: "speech", targetInstanceId: msg.targetInstanceId, text: msg.text }, ws);
+      broadcast(room, { type: "speech", targetInstanceId: msg.targetInstanceId, text: msg.text }, ws);
       return;
     }
   });
 
   ws.on("close", () => {
-    const playerId = socketPlayer.get(ws);
-    socketPlayer.delete(ws);
+    const roomCode = roomBySocket.get(ws);
+    roomBySocket.delete(ws);
+    const room = roomCode ? rooms.get(roomCode) : undefined;
+    if (!room) return;
+
+    const playerId = room.socketPlayer.get(ws);
+    room.socketPlayer.delete(ws);
     if (!playerId) return;
-    const sockets = socketsByPlayer.get(playerId);
+    const sockets = room.socketsByPlayer.get(playerId);
     sockets?.delete(ws);
     if (sockets && sockets.size === 0) {
-      socketsByPlayer.delete(playerId);
-      broadcast({ type: "presence", playerId, online: false });
+      room.socketsByPlayer.delete(playerId);
+      broadcast(room, { type: "presence", playerId, online: false });
     }
+    // An empty room is just left in `rooms` (harmless, in-memory only) so a lone member who
+    // briefly reconnects doesn't lose their slot assignment.
   });
 });
 

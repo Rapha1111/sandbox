@@ -1,5 +1,6 @@
 import { engine, useGameStore, toggleInventory, createAndOpenNewObject } from "../data/store";
 import { HOUSE_MAX_SIZE, houseExpandCost } from "../engine/GameEngine";
+import { RoomPanel } from "./RoomPanel";
 import "./HUD.css";
 
 export function HUD() {
@@ -42,6 +43,7 @@ export function HUD() {
           <span className={mpConnected ? "hud__presence-dot hud__presence-dot--on" : "hud__presence-dot"} />
           {mpConnected ? `${others.length} joueur(s) en ligne` : "Hors ligne"}
         </div>
+        <RoomPanel />
       </div>
       <div className="hud__right">
         <button className="hud__button" onClick={toggleInventory}>🎒 Inventaire</button>

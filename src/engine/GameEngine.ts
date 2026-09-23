@@ -34,7 +34,7 @@ import type {
 } from "./types";
 
 const DEBUG_LOG_CAP = 250;
-export const STARTING_MONEY = 500;
+export const STARTING_MONEY = 5000;
 const DEFAULT_HOUSE_SIZE = 10;
 export const HOUSE_EXPAND_STEP = 2;
 export const HOUSE_MAX_SIZE = 20;
@@ -243,24 +243,63 @@ export class GameEngine {
    * à la connexion"), the same way any later single change is pushed.
    */
   markOwnSliceDirty(): void {
+    const slice = this.ownSliceRefs(false);
+    if (!slice) return;
+    for (const ref of slice) this.markDirty(ref.kind, ref.id);
+  }
+
+  /**
+   * Everything relevant to "me": my own player/house, my objects and their textures, and every
+   * instance currently sitting in my house (or held inside one of those) — regardless of who
+   * currently owns those instances, since placeFromInventory/recoverInstance now let any room
+   * member reassign ownership when they build in someone else's house (spec: "n'importe quel
+   * joueur [peut] modifier la maison de quelqu'un d'autre"). Shared by markOwnSliceDirty (push
+   * what's mine to the room I'm in — published objects only, no point syncing a WIP draft) and
+   * pruneToLocalOnly (drop everything else on leave — drafts included, or switching rooms would
+   * silently delete whatever you're still editing in the Object Creator).
+   */
+  private ownSliceRefs(includeDrafts: boolean): EntityRef[] | null {
     const player = this.players.get(this.localPlayerId);
-    if (!player) return;
-    this.markDirty("player", player.id);
-    this.markDirty("house", player.houseId);
+    if (!player) return null;
+    const refs: EntityRef[] = [
+      { kind: "player", id: player.id },
+      { kind: "house", id: player.houseId },
+    ];
     for (const def of this.defs.values()) {
-      if (def.creatorId === this.localPlayerId && def.published) this.markDirty("def", def.id);
+      if (def.creatorId === this.localPlayerId && (includeDrafts || def.published)) refs.push({ kind: "def", id: def.id });
     }
     for (const tex of this.textures.values()) {
-      if (tex.ownerId === this.localPlayerId) this.markDirty("texture", tex.id);
+      if (tex.ownerId === this.localPlayerId) refs.push({ kind: "texture", id: tex.id });
     }
     for (const inst of this.instances.values()) {
-      if (inst.ownerId === this.localPlayerId) { this.markDirty("instance", inst.id); continue; }
-      if (inst.location.kind === "house" && inst.location.houseId === player.houseId) { this.markDirty("instance", inst.id); continue; }
+      if (inst.ownerId === this.localPlayerId) { refs.push({ kind: "instance", id: inst.id }); continue; }
+      if (inst.location.kind === "house" && inst.location.houseId === player.houseId) { refs.push({ kind: "instance", id: inst.id }); continue; }
       if (inst.location.kind === "instance_inventory") {
         const host = this.instances.get(inst.location.hostInstanceId);
-        if (host?.location.kind === "house" && host.location.houseId === player.houseId) this.markDirty("instance", inst.id);
+        if (host?.location.kind === "house" && host.location.houseId === player.houseId) refs.push({ kind: "instance", id: inst.id });
       }
     }
+    return refs;
+  }
+
+  /**
+   * Drops every entity that isn't in this browser's own slice — called when switching rooms
+   * (src/net/room.ts) so a stale view of the old room's players/houses doesn't linger after
+   * leaving it. Never touches the local player's own data.
+   */
+  pruneToLocalOnly(): void {
+    const slice = this.ownSliceRefs(true);
+    if (!slice) return;
+    const keep: Record<EntityKind, Set<string>> = {
+      player: new Set(), house: new Set(), def: new Set(), texture: new Set(), instance: new Set(),
+    };
+    for (const ref of slice) keep[ref.kind].add(ref.id);
+    for (const id of [...this.players.keys()]) if (!keep.player.has(id)) this.players.delete(id);
+    for (const id of [...this.houses.keys()]) if (!keep.house.has(id)) this.houses.delete(id);
+    for (const id of [...this.defs.keys()]) if (!keep.def.has(id)) this.defs.delete(id);
+    for (const id of [...this.textures.keys()]) if (!keep.texture.has(id)) this.textures.delete(id);
+    for (const id of [...this.instances.keys()]) if (!keep.instance.has(id)) this.instances.delete(id);
+    this.notify();
   }
 
   /** Merges entities pushed by another client (or the server's initial world snapshot) — never re-marks them dirty. */
@@ -658,20 +697,20 @@ export class GameEngine {
   }
 
   /**
-   * requesterId must both own `instanceId` and own `houseId` — placing (or moving) a block is
-   * the one action a visitor must never be able to do in someone else's house (spec: "il ne doit
-   * pas être possible de modifier dans les maisons des autres"). The World UI already only ever
-   * wires a floor-click handler for the current player's own house, but the engine checks it too
-   * since it's the boundary a future real server would enforce authoritatively.
+   * No ownership check on the block or the house: the room code you connect with (see
+   * src/net/room.ts) is the entire trust boundary here — anyone who knows it can freely build
+   * in anyone else's house, by design (spec: "il est possible pour n'importe quel joueur de
+   * modifier la maison de quelqu'un d'autre"). You can only place something already sitting in
+   * "inventory" location, which the World UI only ever offers from your own inventory panel or
+   * by picking an already-placed block back up — never a shortcut to conjure an arbitrary item.
    */
   placeFromInventory(instanceId: ObjectInstanceId, requesterId: PlayerId, houseId: HouseId, x: number, z: number, rotationY = 0): { ok: boolean; reason?: string } {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
     if (inst.location.kind !== "inventory") return { ok: false, reason: "Cet objet n'est pas dans l'inventaire" };
-    if (inst.ownerId !== requesterId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
     const house = this.houses.get(houseId);
     if (!house) return { ok: false, reason: "Maison introuvable" };
-    if (house.ownerId !== requesterId) return { ok: false, reason: "Vous ne pouvez placer des objets que dans votre propre maison" };
+    inst.ownerId = requesterId;
     inst.location = { kind: "house", houseId, x, y: 0, z, rotationY };
     this.markDirty("instance", inst.id);
     this.notify();
@@ -681,7 +720,7 @@ export class GameEngine {
   moveInstance(instanceId: ObjectInstanceId, requesterId: PlayerId, x: number, z: number, rotationY?: number): { ok: boolean; reason?: string } {
     const inst = this.instances.get(instanceId);
     if (!inst || inst.location.kind !== "house") return { ok: false, reason: "Cet objet n'est pas placé" };
-    if (inst.ownerId !== requesterId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
+    inst.ownerId = requesterId;
     inst.location = { ...inst.location, x, z, rotationY: rotationY ?? inst.location.rotationY };
     this.markDirty("instance", inst.id);
     this.notify();
@@ -692,7 +731,7 @@ export class GameEngine {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
     if (inst.location.kind !== "house") return { ok: false, reason: "Cet objet n'est pas placé" };
-    if (inst.ownerId !== requesterId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
+    inst.ownerId = requesterId;
     inst.location = { kind: "inventory" };
     this.markDirty("instance", inst.id);
     this.notify();
@@ -700,15 +739,15 @@ export class GameEngine {
   }
 
   /**
-   * "Supprimer" a placed block is not destructive: it fully recovers it into the owner's own
+   * "Supprimer" a placed block is not destructive: it fully recovers it into the requester's own
    * inventory — the block itself, plus whatever coins it had collected (object.get_balance())
    * and whatever items were stocked in it (player.request_object()) — all handed back at once,
-   * nothing is ever lost.
+   * nothing is ever lost. No ownership check: recovering someone else's block hands it (and its
+   * contents) to whoever recovered it — same room-code trust boundary as placeFromInventory.
    */
   recoverInstance(instanceId: ObjectInstanceId, requesterId: PlayerId): { ok: boolean; reason?: string } {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
-    if (inst.ownerId !== requesterId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
     const def = this.defs.get(inst.defId);
 
     const owner = this.players.get(requesterId);
@@ -732,6 +771,7 @@ export class GameEngine {
     if (recoveredItems > 0) {
       this.pushLog("result", `${recoveredItems} objet(s) récupéré(s) de "${def?.name ?? inst.id}"`);
     }
+    inst.ownerId = requesterId;
     inst.location = { kind: "inventory" };
     this.markDirty("instance", inst.id);
     this.pushLog("result", `"${def?.name ?? inst.id}" récupéré dans l'inventaire`);
@@ -740,16 +780,16 @@ export class GameEngine {
   }
 
   // ---------------------------------------------------------------------
-  // Owner-managed block storage — direct player actions from the "Inventaire"
-  // context-menu entry on a placed block, distinct from the script-mediated
-  // player.request_money()/request_object() (no confirmation needed: it's
-  // the owner managing their own property, like opening their own chest).
+  // Block storage — direct player actions from the "Inventaire" context-menu
+  // entry on a placed block, distinct from the script-mediated
+  // player.request_money()/request_object() (no confirmation needed). No
+  // ownership check on the block itself: any room member can open and manage
+  // any placed block's storage, same trust boundary as placeFromInventory.
   // ---------------------------------------------------------------------
 
   withdrawMoneyFromInstance(playerId: PlayerId, instanceId: ObjectInstanceId, amount: number): { ok: boolean; reason?: string } {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
-    if (inst.ownerId !== playerId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
     if (!Number.isFinite(amount) || amount <= 0) return { ok: false, reason: "Montant invalide" };
     if (inst.wallet < amount) return { ok: false, reason: "Solde insuffisant dans la machine" };
     const player = this.players.get(playerId);
@@ -766,7 +806,6 @@ export class GameEngine {
   depositMoneyToInstance(playerId: PlayerId, instanceId: ObjectInstanceId, amount: number): { ok: boolean; reason?: string } {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
-    if (inst.ownerId !== playerId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
     if (!this.defs.get(inst.defId)?.collidable) return { ok: false, reason: "Cet objet simple (sans collision) ne peut pas stocker d'argent" };
     if (!Number.isFinite(amount) || amount <= 0) return { ok: false, reason: "Montant invalide" };
     const player = this.players.get(playerId);
@@ -783,7 +822,6 @@ export class GameEngine {
   withdrawItemFromInstance(playerId: PlayerId, instanceId: ObjectInstanceId, itemInstanceId: ObjectInstanceId): { ok: boolean; reason?: string } {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
-    if (inst.ownerId !== playerId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
     const item = this.instances.get(itemInstanceId);
     if (!item || item.location.kind !== "instance_inventory" || item.location.hostInstanceId !== instanceId) {
       return { ok: false, reason: "Cet objet n'est pas dans la machine" };
@@ -798,8 +836,9 @@ export class GameEngine {
   depositItemToInstance(playerId: PlayerId, instanceId: ObjectInstanceId, itemInstanceId: ObjectInstanceId): { ok: boolean; reason?: string } {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
-    if (inst.ownerId !== playerId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
     if (!this.defs.get(inst.defId)?.collidable) return { ok: false, reason: "Cet objet simple (sans collision) ne peut pas stocker d'objets" };
+    // Still your own item, from your own inventory — depositing is about giving *your* stuff
+    // into a shared block, not reaching into someone else's separate personal inventory.
     const item = this.instances.get(itemInstanceId);
     if (!item || item.location.kind !== "inventory" || item.ownerId !== playerId) {
       return { ok: false, reason: "Vous ne possédez pas cet objet" };

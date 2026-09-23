@@ -62,9 +62,10 @@ export function World() {
     clearWalkRequest();
   }, [pendingWalkRequest, currentPlayerId]);
 
-  // Live placement/move preview: house-local coords + whether it currently overlaps a wall or
-  // another block (see handleFloorPointerMove below). Reset whenever placement mode ends.
-  const [ghost, setGhost] = useState<{ x: number; z: number; blocked: boolean } | null>(null);
+  // Live placement/move preview: which house's floor the mouse is over, house-local coords, and
+  // whether it currently overlaps a wall or another block (see handleFloorPointerMove below).
+  // Reset whenever placement mode ends.
+  const [ghost, setGhost] = useState<{ houseId: string; x: number; z: number; blocked: boolean } | null>(null);
   useEffect(() => {
     if (!placingInstanceId) setGhost(null);
   }, [placingInstanceId]);
@@ -169,7 +170,8 @@ export function World() {
           }
 
           function handleFloorClick(e: ThreeEvent<MouseEvent>) {
-            if (!placingInstanceId || !isOwn) return;
+            // No ownership check: any room member can build anywhere (spec — see room.ts).
+            if (!placingInstanceId) return;
             e.stopPropagation();
             const { x, z } = clampToFloor(e.point.x, e.point.z);
             const box = placingGhostBox(x, z);
@@ -179,24 +181,24 @@ export function World() {
           }
 
           function handleFloorPointerMove(e: ThreeEvent<PointerEvent>) {
-            if (!placingInstanceId || !isOwn) return;
+            if (!placingInstanceId) return;
             const { x, z } = clampToFloor(e.point.x, e.point.z);
             const box = placingGhostBox(x, z);
             const blocked = box ? boxOverlapsAny(box, boxes) : false;
-            setGhost({ x, z, blocked });
+            setGhost({ houseId: house.id, x, z, blocked });
           }
 
           return (
             <group key={house.id} position={[entry.originX, 0, 0]}>
               <HouseScene
                 house={house}
-                onFloorClick={isOwn ? handleFloorClick : undefined}
-                onFloorPointerMove={isOwn ? handleFloorPointerMove : undefined}
-                onFloorPointerLeave={isOwn ? () => setGhost(null) : undefined}
+                onFloorClick={handleFloorClick}
+                onFloorPointerMove={handleFloorPointerMove}
+                onFloorPointerLeave={() => setGhost((g) => (g?.houseId === house.id ? null : g))}
                 isOwn={isOwn}
                 label={isOwn ? undefined : `Chez ${owner?.name ?? "?"}`}
               />
-              {isOwn && ghost && placingInstanceId && (() => {
+              {ghost && ghost.houseId === house.id && placingInstanceId && (() => {
                 const placingInst = engine.getInstance(placingInstanceId);
                 const placingDef = placingInst ? engine.getDefinition(placingInst.defId) : undefined;
                 return placingDef ? <PlacementGhost def={placingDef} x={ghost.x} z={ghost.z} blocked={ghost.blocked} /> : null;
@@ -214,9 +216,7 @@ export function World() {
                     def={def}
                     speech={b?.text}
                     onInteract={() => handleInteract(inst.id, worldX, worldZ)}
-                    onContextMenu={(clientX, clientY) => {
-                      if (isOwn && inst.ownerId === currentPlayerId) openContextMenu(inst.id, clientX, clientY);
-                    }}
+                    onContextMenu={(clientX, clientY) => openContextMenu(inst.id, clientX, clientY)}
                   />
                 );
               })}
@@ -245,7 +245,8 @@ export function World() {
       </Canvas>
       {placingInstanceId && (
         <div className="world__placing-hint">
-          Cliquez au sol (dans votre maison) pour placer l'objet — <button onClick={cancelPlacing}>Annuler</button>
+          Cliquez au sol pour placer l'objet (chez vous ou chez un autre joueur du même salon) —{" "}
+          <button onClick={cancelPlacing}>Annuler</button>
         </div>
       )}
       <div className="world__controls-hint">WASD / flèches pour se déplacer · clic gauche = interagir · clic droit = menu</div>

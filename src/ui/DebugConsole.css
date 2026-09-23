@@ -1,0 +1,63 @@
+.debug-console {
+  display: flex;
+  flex-direction: column;
+  background: #0b0f19;
+  color: #d6deeb;
+  border-radius: 8px;
+  border: 1px solid #1f2937;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.debug-console--compact {
+  max-height: 220px;
+}
+
+.debug-console__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: #111827;
+  color: #9ca3af;
+  font-family: inherit;
+}
+
+.debug-console__header button {
+  background: transparent;
+  color: #9ca3af;
+  border: 1px solid #374151;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.debug-console__body {
+  padding: 6px 10px;
+  overflow-y: auto;
+  max-height: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.debug-console__empty {
+  color: #6b7280;
+  padding: 8px 0;
+}
+
+.debug-console__line {
+  display: flex;
+  gap: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.debug-console__icon {
+  opacity: 0.7;
+}
+
+.debug-console__line--error { color: #f87171; }
+.debug-console__line--result { color: #4ade80; }
+.debug-console__line--call { color: #60a5fa; }
+.debug-console__line--info { color: #d6deeb; }

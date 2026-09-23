@@ -1,0 +1,57 @@
+:root {
+  --panel: #ffffff;
+  --panel-2: #f1f2f6;
+  --border: #e2e4ea;
+  --text: #14171f;
+  --text-dim: #6b7280;
+  --accent: #1f4fd8;
+
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #dfe6f0;
+  color: var(--text);
+}
+
+button {
+  font-family: inherit;
+  font-size: 13px;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+input, select {
+  font-family: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: white;
+  color: var(--text);
+}
+
+h1, h2, h3, h4 {
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}

@@ -1,0 +1,91 @@
+.pixel-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pixel-editor__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.pixel-editor__tools {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pixel-editor__tool {
+  background: var(--panel-2);
+}
+
+.pixel-editor__tool--active {
+  background: var(--accent);
+  color: white;
+}
+
+.pixel-editor__body {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.pixel-editor canvas {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: crosshair;
+  image-rendering: pixelated;
+  touch-action: none;
+  max-width: 100%;
+}
+
+.pixel-editor__side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 160px;
+}
+
+.pixel-editor__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.pixel-editor__preview canvas {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background:
+    linear-gradient(45deg, #e5e7eb 25%, transparent 25%) -8px 0/16px 16px,
+    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%) -8px 0/16px 16px,
+    linear-gradient(45deg, transparent 75%, #e5e7eb 75%) -8px 0/16px 16px,
+    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%) -8px 0/16px 16px;
+}
+
+.pixel-editor__palette {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.pixel-editor__swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+}
+
+.pixel-editor__size {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}

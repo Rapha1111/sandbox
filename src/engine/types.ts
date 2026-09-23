@@ -1,0 +1,112 @@
+// Core data model shared by the runtime and (eventually) a networked server.
+// Kept free of any rendering/UI concerns so it can move server-side later
+// without a rewrite (see README "Architecture").
+
+export type PlayerId = string;
+export type ObjectDefId = string;
+export type ObjectInstanceId = string;
+export type TextureId = string;
+export type HouseId = string;
+
+/** A hand-drawn pixel art texture. Colors are stored as CSS hex strings, "" = transparent. */
+export interface Texture {
+  id: TextureId;
+  name: string;
+  size: number; // width == height, e.g. 8/16/32/64
+  pixels: string[]; // length size*size, row-major
+  ownerId: PlayerId;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type FaceName = "top" | "bottom" | "front" | "back" | "left" | "right";
+export const FACE_NAMES: FaceName[] = ["top", "bottom", "front", "back", "left", "right"];
+
+export interface Dimensions {
+  width: number; // X
+  height: number; // Y
+  depth: number; // Z
+}
+
+/** The template a creator publishes. Analogous to a "class". */
+export interface ObjectDefinition {
+  id: ObjectDefId;
+  name: string;
+  creatorId: PlayerId;
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+  dimensions: Dimensions;
+  textures: Partial<Record<FaceName, TextureId>>;
+  collidable: boolean;
+  /** Arbitrary designer-defined properties, readable from scripts via object.get_property(). */
+  properties: Record<string, string | number | boolean>;
+  /** Python-like source code. See src/script-lang. */
+  script: string;
+  published: boolean;
+}
+
+/** A concrete placed/owned copy of a definition. Analogous to an "instance". */
+export interface ObjectInstance {
+  id: ObjectInstanceId;
+  defId: ObjectDefId;
+  ownerId: PlayerId | null;
+  /** Where it lives right now. */
+  location:
+    | { kind: "inventory" }
+    | { kind: "house"; houseId: HouseId; x: number; y: number; z: number; rotationY: number };
+  /** Free-form per-instance state a script can read/write via object.get_state/set_state. */
+  state: Record<string, string | number | boolean>;
+  createdAt: number;
+}
+
+export interface InventoryStack {
+  defId: ObjectDefId;
+  instanceIds: ObjectInstanceId[];
+}
+
+export interface Player {
+  id: PlayerId;
+  name: string;
+  money: number;
+  houseId: HouseId;
+  position: { x: number; z: number };
+}
+
+export interface House {
+  id: HouseId;
+  ownerId: PlayerId;
+  width: number;
+  depth: number;
+}
+
+export interface PendingTransaction {
+  id: string;
+  kind: "request_money";
+  playerId: PlayerId;
+  amount: number;
+  sourceInstanceId: ObjectInstanceId | null;
+  sourceDefName: string;
+  createdAt: number;
+}
+
+export interface TransactionResult {
+  accepted: boolean;
+  reason?: string;
+}
+
+export interface DebugLogEntry {
+  id: string;
+  timestamp: number;
+  level: "info" | "call" | "result" | "error";
+  message: string;
+}
+
+export interface SaveGame {
+  version: 1;
+  players: Player[];
+  houses: House[];
+  objectDefinitions: ObjectDefinition[];
+  textures: Texture[];
+  objectInstances: ObjectInstance[];
+}

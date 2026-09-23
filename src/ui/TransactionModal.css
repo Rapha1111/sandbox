@@ -1,0 +1,66 @@
+.tx-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 20, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.tx-modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px 28px;
+  width: 320px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.tx-modal h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.tx-modal__source {
+  font-weight: 700;
+  font-size: 16px;
+  margin: 4px 0 12px;
+}
+
+.tx-modal__desc {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.tx-modal__amount {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--accent);
+  margin: 8px 0 20px;
+}
+
+.tx-modal__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.tx-modal__actions button {
+  flex: 1;
+  padding: 10px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.tx-modal__refuse {
+  background: var(--panel-2);
+}
+
+.tx-modal__accept {
+  background: var(--accent);
+  color: white;
+}

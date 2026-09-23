@@ -63,7 +63,7 @@ export function ObjectInstanceMesh({
         <boxGeometry args={[width, height, depth]} />
       </mesh>
       {speech && (
-        <Html center distanceFactor={8} position={[0, height / 2 + 0.6, 0]} style={{ pointerEvents: "none" }}>
+        <Html center position={[0, height / 2 + 0.6, 0]} style={{ pointerEvents: "none" }}>
           <div className="speech-bubble">{speech}</div>
         </Html>
       )}

@@ -26,7 +26,7 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
   dimensions (largeur/hauteur/profondeur), collision, propriétés
   personnalisées, placement depuis l'inventaire par clic au sol. Clic droit
   sur un objet placé que vous possédez → menu contextuel **Inventaire /
-  Déplacer / Supprimer** (voir plus bas).
+  Déplacer / Récupérer** (voir plus bas).
 - **Textures pixel art (P2)** — chaque objet a sa propre **bibliothèque de
   textures nommées** (onglet Textures : grille de faces + section
   "Bibliothèque" pour créer/renommer/supprimer des textures additionnelles,
@@ -75,11 +75,12 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
 - **Gestion d'un objet placé** — clic droit sur un bloc que vous possédez
   ouvre un menu à trois entrées : **📦 Inventaire** (voir ci-dessous),
   **✋ Déplacer** (le reprendre puis cliquer un nouvel emplacement — son
-  solde et son contenu suivent, rien n'est perdu) et **🗑️ Supprimer**. La
-  suppression est destructrice pour le bloc, jamais pour vous : tout
-  l'argent qu'il avait collecté (`object.get_balance()`) et tous les
-  objets stockés dedans sont automatiquement rendus à votre inventaire
-  juste avant sa disparition.
+  solde et son contenu suivent, rien n'est perdu) et **↩️ Récupérer**.
+  Aucune des deux n'est destructrice : « Récupérer » rend le bloc
+  lui-même à votre inventaire (comme un ramassage), après y avoir d'abord
+  reversé tout l'argent qu'il avait collecté (`object.get_balance()`) et
+  tous les objets qui étaient stockés dedans — rien n'est jamais perdu,
+  ni l'argent, ni les objets, ni le bloc.
 - **📦 Inventaire d'un objet placé** — panneau dédié pour gérer directement
   le contenu d'une machine que vous possédez, sans passer par un script :
   déposer/retirer des coins (comme pour `player.request_money`/
@@ -186,9 +187,10 @@ objets de test plutôt que de s'appuyer sur des objets pré-publiés.
    l'inventaire du joueur vers la machine, puis retrait partiel des coins
    — soldes des deux côtés cohérents à chaque étape. **Déplacer** → le
    bloc repasse en mode placement et peut être redéposé ailleurs sans
-   perdre son contenu. **Supprimer** avec du solde et un objet encore
-   stockés dedans → les deux sont automatiquement rendus à l'inventaire
-   du joueur avant la suppression du bloc.
+   perdre son contenu. **Récupérer** avec du solde et un objet encore
+   stockés dedans → le solde, l'objet stocké *et le bloc lui-même*
+   atterrissent tous les trois dans l'inventaire du joueur (le bloc n'est
+   jamais détruit, juste repris).
 9. Plus de badge d'identifiant par exemplaire dans l'inventaire (vérifié
    par absence de la classe `inventory__id` dans le DOM) ; l'identifiant
    de définition reste visible dans l'Object Creator.

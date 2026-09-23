@@ -496,38 +496,39 @@ export class GameEngine {
   }
 
   /**
-   * Deleting a block is destructive for the block, never for its owner's belongings: whatever
-   * coins it had collected (object.get_balance()) and whatever items were stocked in it
-   * (player.request_object()) are handed back to the deleting owner first.
+   * "Supprimer" a placed block is not destructive: it fully recovers it into the owner's own
+   * inventory — the block itself, plus whatever coins it had collected (object.get_balance())
+   * and whatever items were stocked in it (player.request_object()) — all handed back at once,
+   * nothing is ever lost.
    */
-  deleteInstance(instanceId: ObjectInstanceId, requesterId: PlayerId): { ok: boolean; reason?: string } {
+  recoverInstance(instanceId: ObjectInstanceId, requesterId: PlayerId): { ok: boolean; reason?: string } {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
     if (inst.ownerId !== requesterId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
     const def = this.defs.get(inst.defId);
-    const cleanup = def ? this.runEventForInstance(inst, def, "on_destroy", []) : Promise.resolve();
-    void cleanup.finally(() => {
-      const owner = this.players.get(requesterId);
-      if (owner && inst.wallet > 0) {
-        owner.money += inst.wallet;
-        this.pushLog("result", `+${inst.wallet} coins récupérés de "${def?.name ?? inst.id}" avant suppression`);
+
+    const owner = this.players.get(requesterId);
+    if (owner && inst.wallet > 0) {
+      owner.money += inst.wallet;
+      this.pushLog("result", `+${inst.wallet} coins récupérés de "${def?.name ?? inst.id}"`);
+      inst.wallet = 0;
+    }
+    let recoveredItems = 0;
+    for (const held of this.listInstanceInventory(instanceId)) {
+      for (const heldId of held.instanceIds) {
+        const heldInst = this.instances.get(heldId);
+        if (!heldInst) continue;
+        heldInst.ownerId = requesterId;
+        heldInst.location = { kind: "inventory" };
+        recoveredItems++;
       }
-      let recovered = 0;
-      for (const held of this.listInstanceInventory(instanceId)) {
-        for (const heldId of held.instanceIds) {
-          const heldInst = this.instances.get(heldId);
-          if (!heldInst) continue;
-          heldInst.ownerId = requesterId;
-          heldInst.location = { kind: "inventory" };
-          recovered++;
-        }
-      }
-      if (recovered > 0) {
-        this.pushLog("result", `${recovered} objet(s) récupéré(s) de "${def?.name ?? inst.id}" avant suppression`);
-      }
-      this.instances.delete(instanceId);
-      this.notify();
-    });
+    }
+    if (recoveredItems > 0) {
+      this.pushLog("result", `${recoveredItems} objet(s) récupéré(s) de "${def?.name ?? inst.id}"`);
+    }
+    inst.location = { kind: "inventory" };
+    this.pushLog("result", `"${def?.name ?? inst.id}" récupéré dans l'inventaire`);
+    this.notify();
     return { ok: true };
   }
 

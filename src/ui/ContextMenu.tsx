@@ -10,9 +10,9 @@ export function ContextMenu() {
   const instance = engine.getInstance(menu.instanceId);
   const def = instance ? engine.getDefinition(instance.defId) : undefined;
 
-  function handleDelete() {
+  function handleRecover() {
     if (!menu) return;
-    engine.deleteInstance(menu.instanceId, currentPlayerId);
+    engine.recoverInstance(menu.instanceId, currentPlayerId);
     closeContextMenu();
   }
 
@@ -26,7 +26,9 @@ export function ContextMenu() {
         {def && <div className="context-menu__title">{def.name}</div>}
         <button onClick={() => openMachineInventory(menu.instanceId)}>📦 Inventaire</button>
         <button onClick={() => startMoving(menu.instanceId)}>✋ Déplacer</button>
-        <button className="context-menu__danger" onClick={handleDelete}>🗑️ Supprimer</button>
+        <button onClick={handleRecover} title="Récupère le bloc, son solde et son contenu dans votre inventaire">
+          ↩️ Récupérer
+        </button>
       </div>
     </div>
   );

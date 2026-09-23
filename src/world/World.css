@@ -56,3 +56,28 @@
   white-space: nowrap;
   box-shadow: 0 4px 10px rgba(0,0,0,0.15);
 }
+
+.house-label {
+  background: rgba(31, 41, 55, 0.85);
+  color: white;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.player-label {
+  background: rgba(255,255,255,0.9);
+  border: 1px solid #1f2937;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.player-label--offline {
+  opacity: 0.55;
+  font-style: italic;
+}

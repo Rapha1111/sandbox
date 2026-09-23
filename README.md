@@ -1,20 +1,34 @@
-# Sandbox sociale programmable — Prototype solo (v0.1)
+# Sandbox sociale programmable — Prototype (v0.2, début du multijoueur)
 
-Prototype jouable en solo d'une sandbox où **les joueurs créent eux-mêmes
-les objets et systèmes du monde** : formes, textures pixel art, scripts,
+Prototype jouable d'une sandbox où **les joueurs créent eux-mêmes les
+objets et systèmes du monde** : formes, textures pixel art, scripts,
 économie. Implémente les objectifs P0–P4 du document de spécifications
-(`specifications_jeu_sandbox.md`).
+(`specifications_jeu_sandbox.md`), plus un tout premier niveau de
+multijoueur (voir « Multijoueur » ci-dessous).
 
 ## Lancer le projet
 
 ```bash
 npm install
-npm run dev       # serveur de dev, http://localhost:5173
+npm run dev       # client (Vite), http://localhost:5173
+npm run server    # serveur de relais multijoueur, ws://localhost:8787
 npm run build     # build de production (tsc -b && vite build)
 ```
 
-Aucun serveur/backend n'est requis : tout tourne dans le navigateur, l'état
-est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
+Le client fonctionne très bien **sans** `npm run server` : tout continue de
+tourner dans le navigateur, l'état est sauvegardé dans `localStorage`
+(débounce 300ms après chaque changement), exactement comme le prototype
+solo d'origine — le serveur n'est nécessaire que pour voir d'autres
+joueurs réels. Lancez les deux commandes dans deux terminaux séparés pour
+tester en multijoueur ; ouvrez ensuite `http://localhost:5173` dans deux
+navigateurs (ou deux fenêtres de navigation privée — l'identité de chacun
+vit dans `localStorage`, donc deux onglets du même navigateur non-privé
+partageraient la même identité).
+
+Pour un déploiement (ex. le client sur Vercel), pointez le client vers un
+serveur de relais accessible publiquement avec la variable d'env Vite
+`VITE_WS_URL` (ex. `VITE_WS_URL=wss://mon-serveur.example.com npm run
+build`) — voir « Multijoueur » pour les limites de ce relais.
 
 ## Ce qui est implémenté
 
@@ -130,31 +144,94 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
 Le monde démarre **vide** (juste le joueur et sa maison) : c'est au joueur
 de créer ses propres objets via l'Object Creator dès la première session.
 
+## Multijoueur (début — voir spec §35 « hors périmètre solo »)
+
+Chaque navigateur obtient une identité stable (générée une fois, stockée
+dans `localStorage` séparément de la sauvegarde de monde — voir
+`src/net/identity.ts`) et sa **propre maison**. Toutes les maisons sont
+alignées côte à côte dans une même rue ; on en sort par le côté ouvert
+(sud, sans mur) pour aller visiter celle des autres.
+
+- **Visiter** — se promener dans la maison d'un autre joueur est
+  totalement libre : ses blocs bloquent le passage comme les vôtres,
+  vous pouvez cliquer dessus pour déclencher `on_interact` (payer un
+  distributeur, lire un panneau, etc.) exactement comme chez vous.
+- **Modifier reste impossible ailleurs que chez soi** — placer, déplacer
+  ou récupérer un bloc n'est jamais possible dans la maison d'un autre :
+  l'UI ne câble le clic-au-sol de placement que pour votre propre maison,
+  et `GameEngine.placeFromInventory`/`moveInstance` vérifient en plus
+  côté moteur que l'appelant possède bien la maison ciblée (défense en
+  profondeur, utile le jour où un vrai serveur validera ces appels).
+  Le menu contextuel (clic droit) ne s'ouvre de toute façon que sur vos
+  propres blocs.
+- **Agrandir sa maison** — bouton **🏡 Agrandir** dans le HUD : contre un
+  nombre de pièces croissant (100, 160, 220…), la maison grandit de 2×2.
+  Les maisons voisines (dans l'ordre d'arrivée) se décalent en
+  conséquence pour ne jamais se chevaucher.
+- **Ce qui se synchronise** — argent, inventaire, objets créés/publiés et
+  disposition des objets dans votre maison. Toute action qui modifie
+  quelque chose (y compris chez un autre : payer sa machine, y déposer un
+  objet) est envoyée au serveur de relais, qui la retransmet à tout le
+  monde ; à la connexion, votre navigateur envoie d'abord un instantané
+  complet de ce qu'il sait de vous-même. Les bulles de dialogue
+  (`player.say`) sont aussi relayées en direct, sans être sauvegardées.
+
+**Comment c'est fait (`server/index.ts`, `src/net/`)** — le serveur est
+volontairement « bête » : il ne fait tourner aucune logique de jeu
+(aucun script, aucune règle d'économie), juste (1) attribuer une place
+stable dans la rue la première fois qu'il voit un joueur, et (2) stocker
+la dernière version connue de chaque entité (joueur/maison/objet/texture/
+instance) et la retransmettre — dernier arrivé, dernier servi, par
+entité, en mémoire seulement (un redémarrage du serveur oublie tout, sans
+gravité puisque chaque client renvoie sa propre part au reconnect).
+`GameEngine` reste la même classe framework-agnostique : chaque
+navigateur fait tourner sa **propre copie complète** du moteur (tous les
+joueurs, toutes les maisons) et applique lui-même les scripts qu'il
+déclenche ; rien ne s'exécute côté serveur. C'est un raccourci délibéré
+de prototype — comme le rappelle la demande d'origine, une vraie
+architecture réseau demandera un serveur qui simule réellement le monde
+et fait autorité sur les scripts (surtout les actions sensibles comme
+`object.give_item`/`spawn`), avec une vraie base de données à la place de
+la `Map` en mémoire du relais actuel. Pour l'instant, un client mal
+intentionné pourrait en théorie envoyer un instantané mensonger — il n'y
+a pas encore de validation autoritaire côté serveur, seulement les
+vérifications de propriété déjà en place côté moteur.
+
 ## Architecture
 
 ```
+server/          relais multijoueur (Node + ws) — voir "Multijoueur"
 src/
+  net/           protocole réseau (protocol.ts), identité locale
+                 persistante (identity.ts), client WebSocket
+                 (multiplayer.ts) — partagé par le client et server/
   script-lang/   lexer, parser, interpreter — langage indépendant du jeu
   engine/        GameEngine (Object/Inventory/Economy/Transaction/
-                 Permission managers), types du modèle de données, API
-                 de script, persistance (SaveManager)
-  data/store.ts  pont zustand : re-render React quand GameEngine.notify()
-  world/         rendu 3D (react-three-fiber) : caméra, maison, joueur,
-                 instances d'objets, textures
+                 Permission managers), houseLayout.ts (calcul pur des
+                 positions des maisons, partagé moteur/rendu), types du
+                 modèle de données, API de script, persistance
+                 (SaveManager)
+  data/store.ts  pont zustand : re-render React quand GameEngine.notify(),
+                 démarre la connexion multijoueur
+  world/         rendu 3D (react-three-fiber) : caméra, maisons (plusieurs,
+                 côte à côte), joueur local + joueurs distants, instances
+                 d'objets, textures
   ui/            Object Creator, éditeur pixel art, inventaire, HUD,
                  modale de transaction, console de debug
 ```
 
 `GameEngine` ne dépend d'aucune API DOM/React : c'est une classe
 framework-agnostique qui expose `subscribe()` pour toute notification de
-changement. C'est ce découplage qui permettra, pour la version
-multijoueur, de faire tourner cette même classe côté serveur (autoritaire)
-et de remplacer uniquement `LocalStorageSaveManager` par un client réseau
-parlant au serveur — sans réécrire la logique de jeu, les managers ou le
-langage de script. `ObjectDefinition` (le modèle publié par un créateur)
-et `ObjectInstance` (un exemplaire possédé/placé) sont déjà distincts
-(spec §16), ce qui est la base nécessaire à l'échange/vente/don d'objets
-plus tard.
+changement, et suit désormais aussi (`markDirty`/`consumeDirty`) quelles
+entités ont changé localement pour la synchronisation réseau — sans rien
+savoir du transport (WebSocket, etc.), le même découplage que
+`LocalStorageSaveManager` pour la sauvegarde. C'est ce découplage qui
+permettra, pour une vraie version multijoueur, de faire tourner cette
+même classe côté serveur (autoritaire cette fois) sans réécrire la
+logique de jeu, les managers ou le langage de script.
+`ObjectDefinition` (le modèle publié par un créateur) et `ObjectInstance`
+(un exemplaire possédé/placé) sont déjà distincts (spec §16), ce qui est
+la base nécessaire à l'échange/vente/don d'objets plus tard.
 
 ## Testé manuellement (Playwright, voir aussi §29–31 de la spec)
 
@@ -199,15 +276,34 @@ objets de test plutôt que de s'appuyer sur des objets pré-publiés.
 9. Plus de badge d'identifiant par exemplaire dans l'inventaire (vérifié
    par absence de la classe `inventory__id` dans le DOM) ; l'identifiant
    de définition reste visible dans l'Object Creator.
+10. Multijoueur (deux contextes de navigateur, deux identités, serveur de
+    relais lancé) : le second joueur apparaît dans sa propre maison,
+    séparée de celle du premier par la rue ; le premier joueur peut
+    marcher jusque chez le second (visible en direct, avatar + nom) ;
+    tenter de placer un objet dans la maison du second échoue
+    silencieusement (le mode "placement" reste actif) alors que le même
+    clic fonctionne chez soi ; l'indicateur de présence du HUD affiche le
+    bon nombre de joueurs en ligne des deux côtés.
+11. Agrandissement : cliquer **🏡 Agrandir** débite le coût affiché
+    (croissant à chaque fois : 100, 160, 220…), la maison grandit
+    visiblement de 2×2, et le bouton se désactive dès que le solde du
+    joueur devient insuffisant pour le prochain palier (jamais de solde
+    négatif).
 
 ## Volontairement non traité dans ce prototype (voir spec §35)
 
-Hors périmètre "sandbox solo" : multijoueur/réseau, marketplace,
-échange/vente entre joueurs, modération, copier/coller et sélection dans
-l'éditeur de texture, animations avancées (`object.play_animation` est
-fonctionnel comme *hook* mais ne joue pas encore d'animation visuelle),
-persistance des brouillons d'objets non publiés en cas de rechargement
-pendant l'édition, migration automatique d'anciennes sauvegardes
-`localStorage` d'avant l'introduction de la bibliothèque de textures
-nommées (une sauvegarde très ancienne peut afficher des objets sans
-texture — dans ce cas, republier l'objet ou vider `localStorage`).
+Ce qui reste hors périmètre même avec ce premier niveau de multijoueur :
+un vrai serveur qui simule le monde et fait autorité sur les scripts (le
+relais actuel ne fait que stocker/retransmettre ce que chaque client lui
+envoie — voir « Multijoueur »), la persistance du monde partagé au-delà
+de la durée de vie du process serveur, toute résolution de conflit plus
+fine que « dernier arrivé, dernier servi » par entité, un chat entre
+joueurs, marketplace, échange/vente entre joueurs, modération,
+copier/coller et sélection dans l'éditeur de texture, animations
+avancées (`object.play_animation` est fonctionnel comme *hook* mais ne
+joue pas encore d'animation visuelle), persistance des brouillons
+d'objets non publiés en cas de rechargement pendant l'édition, migration
+automatique d'anciennes sauvegardes `localStorage` d'avant l'introduction
+de la bibliothèque de textures nommées (une sauvegarde très ancienne peut
+afficher des objets sans texture — dans ce cas, republier l'objet ou
+vider `localStorage`).

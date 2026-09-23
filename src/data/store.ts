@@ -1,8 +1,12 @@
 import { create } from "zustand";
 import { GameEngine } from "../engine/GameEngine";
 import { LocalStorageSaveManager } from "../engine/save";
+import { getOrCreateLocalIdentity } from "../net/identity";
+import { connectMultiplayer } from "../net/multiplayer";
 
-export const engine = new GameEngine(new LocalStorageSaveManager());
+export const localIdentity = getOrCreateLocalIdentity();
+export const engine = new GameEngine(new LocalStorageSaveManager(), localIdentity.id, localIdentity.name);
+const multiplayer = connectMultiplayer(engine, localIdentity);
 
 interface UiState {
   /** Bumped on every engine change so components subscribed via useGameStore re-render. */
@@ -18,14 +22,17 @@ interface UiState {
   contextMenu: { instanceId: string; x: number; y: number } | null;
   /** Which placed block's own storage (wallet + items) is being viewed/managed. */
   viewingInstanceInventoryId: string | null;
+  /** Multiplayer relay connection (server/index.ts) — see src/net/multiplayer.ts. */
+  mpConnected: boolean;
+  onlinePlayerIds: string[];
 }
 
-const firstPlayer = engine.listPlayers()[0];
+const localPlayer = engine.getPlayer(localIdentity.id)!;
 
 export const useGameStore = create<UiState>()(() => ({
   tick: 0,
-  currentPlayerId: firstPlayer.id,
-  activeHouseId: firstPlayer.houseId,
+  currentPlayerId: localPlayer.id,
+  activeHouseId: localPlayer.houseId,
   editingDefId: null,
   view: "world",
   inventoryOpen: false,
@@ -33,10 +40,16 @@ export const useGameStore = create<UiState>()(() => ({
   apiHelpOpen: false,
   contextMenu: null,
   viewingInstanceInventoryId: null,
+  mpConnected: false,
+  onlinePlayerIds: [],
 }));
 
 engine.subscribe(() => {
   useGameStore.setState((s) => ({ tick: s.tick + 1 }));
+});
+
+multiplayer.subscribe((state) => {
+  useGameStore.setState({ mpConnected: state.connected, onlinePlayerIds: [...state.onlinePlayerIds] });
 });
 
 export function openEditor(defId: string): void {

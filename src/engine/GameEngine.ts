@@ -10,6 +10,9 @@ import { buildObjectHost, buildPlayerHost, type ScriptEngineHooks, type Transact
 import { genId } from "./idgen";
 import type { SaveManager } from "./save";
 import { kindOf } from "./permissions";
+import type { WorldPatch } from "../net/protocol";
+import { emptyPatch, isPatchEmpty } from "../net/protocol";
+import { computeHouseLayout } from "./houseLayout";
 import type {
   DebugLogEntry,
   FaceName,
@@ -32,11 +35,21 @@ import type {
 
 const DEBUG_LOG_CAP = 250;
 export const STARTING_MONEY = 500;
+const DEFAULT_HOUSE_SIZE = 10;
+export const HOUSE_EXPAND_STEP = 2;
+export const HOUSE_MAX_SIZE = 20;
+export const houseExpandCost = (expansions: number): number => 100 + expansions * 60;
 
 export interface SpeechBubble {
   targetInstanceId: string;
   text: string;
   expiresAt: number;
+}
+
+type EntityKind = "player" | "house" | "def" | "texture" | "instance";
+interface EntityRef {
+  kind: EntityKind;
+  id: string;
 }
 
 /**
@@ -66,11 +79,22 @@ export class GameEngine {
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private saveManager: SaveManager;
 
-  constructor(saveManager: SaveManager) {
+  /** Entities changed locally since the last multiplayer flush (src/net/multiplayer.ts). */
+  private dirty = new Map<string, EntityRef>();
+  private localPlayerId: PlayerId;
+  private onLocalSpeech?: (targetInstanceId: string, text: string) => void;
+
+  /** Wired by src/net/multiplayer.ts to relay this client's own say() calls to everyone else. */
+  setOnLocalSpeech(fn: (targetInstanceId: string, text: string) => void): void {
+    this.onLocalSpeech = fn;
+  }
+
+  constructor(saveManager: SaveManager, localPlayerId: PlayerId, localPlayerName = "Joueur") {
     this.saveManager = saveManager;
+    this.localPlayerId = localPlayerId;
     const saved = saveManager.load();
     if (saved) this.loadSaveGame(saved);
-    else this.seedDefaultWorld();
+    if (!this.players.has(localPlayerId)) this.createLocalPlayer(localPlayerId, localPlayerName);
   }
 
   // ---------------------------------------------------------------------
@@ -105,35 +129,170 @@ export class GameEngine {
 
   private loadSaveGame(save: SaveGame): void {
     this.players = new Map(save.players.map((p) => [p.id, p]));
-    this.houses = new Map(save.houses.map((h) => [h.id, h]));
+    this.houses = new Map(
+      save.houses.map((h, i) => [
+        h.id,
+        // Backfill fields older saves didn't have.
+        { ...h, slotIndex: h.slotIndex ?? i, expansions: h.expansions ?? 0 },
+      ])
+    );
     this.defs = new Map(save.objectDefinitions.map((d) => [d.id, d]));
     this.textures = new Map(save.textures.map((t) => [t.id, t]));
     this.instances = new Map(save.objectInstances.map((i) => [i.id, i]));
   }
 
+  /** Rebuilds *only this browser's own* corner of the world — other synced players are untouched. */
   resetSave(): void {
     this.saveManager.clear();
-    this.players.clear();
-    this.houses.clear();
-    this.defs.clear();
-    this.textures.clear();
-    this.instances.clear();
+    const ownHouseId = this.players.get(this.localPlayerId)?.houseId;
+    this.players.delete(this.localPlayerId);
+    if (ownHouseId) this.houses.delete(ownHouseId);
+    for (const def of [...this.defs.values()]) if (def.creatorId === this.localPlayerId) this.defs.delete(def.id);
+    for (const tex of [...this.textures.values()]) if (tex.ownerId === this.localPlayerId) this.textures.delete(tex.id);
+    for (const inst of [...this.instances.values()]) {
+      if (inst.ownerId === this.localPlayerId || (inst.location.kind === "house" && inst.location.houseId === ownHouseId)) {
+        this.instances.delete(inst.id);
+      }
+    }
     this.debugLog = [];
-    this.seedDefaultWorld();
+    this.createLocalPlayer(this.localPlayerId, "Joueur");
     this.notify();
   }
 
-  private seedDefaultWorld(): void {
-    const playerId = genId("player");
+  private nextFreeSlotIndex(): number {
+    let max = -1;
+    for (const h of this.houses.values()) max = Math.max(max, h.slotIndex);
+    return max + 1;
+  }
+
+  private createLocalPlayer(playerId: PlayerId, name: string): void {
     const houseId = genId("house");
-    this.houses.set(houseId, { id: houseId, ownerId: playerId, width: 10, depth: 10 });
+    const house: House = {
+      id: houseId,
+      ownerId: playerId,
+      width: DEFAULT_HOUSE_SIZE,
+      depth: DEFAULT_HOUSE_SIZE,
+      slotIndex: this.nextFreeSlotIndex(),
+      expansions: 0,
+    };
+    this.houses.set(houseId, house);
+    // Spawn just inside the house's own open (south) side, in world coordinates — player
+    // positions are world-space throughout so a visiting player's position is meaningful
+    // wherever they've wandered, not just relative to their own house (see houseLayout.ts).
+    const entry = computeHouseLayout([...this.houses.values()]).find((e) => e.houseId === houseId);
     this.players.set(playerId, {
       id: playerId,
-      name: "Joueur",
+      name,
       money: STARTING_MONEY,
       houseId,
-      position: { x: 0, z: 3 },
+      position: { x: entry?.originX ?? 0, z: 3 },
     });
+    this.markDirty("house", houseId);
+    this.markDirty("player", playerId);
+  }
+
+  // ---------------------------------------------------------------------
+  // Multiplayer sync (src/net) — the engine stays a dumb, ownership-agnostic
+  // replicated store: any client can end up mutating any entity (e.g. a
+  // visitor paying into someone else's machine), so "dirty" is tracked per
+  // *entity*, not per player. A relay server merges whatever entities each
+  // client pushes (last write wins) and rebroadcasts them to everyone else —
+  // see server/index.ts and src/net/multiplayer.ts for the other half.
+  // ---------------------------------------------------------------------
+
+  private markDirty(kind: EntityKind, id: string): void {
+    this.dirty.set(`${kind}:${id}`, { kind, id });
+  }
+
+  hasDirty(): boolean { return this.dirty.size > 0; }
+
+  /** Pulls (and clears) everything changed locally since the last call, as a sendable patch. */
+  consumeDirty(): WorldPatch {
+    const refs = [...this.dirty.values()];
+    this.dirty.clear();
+    return this.exportRefs(refs);
+  }
+
+  private exportRefs(refs: EntityRef[]): WorldPatch {
+    const patch = emptyPatch();
+    for (const ref of refs) {
+      switch (ref.kind) {
+        case "player": { const v = this.players.get(ref.id); if (v) patch.players.push(v); break; }
+        case "house": { const v = this.houses.get(ref.id); if (v) patch.houses.push(v); break; }
+        case "def": { const v = this.defs.get(ref.id); if (v) patch.defs.push(v); break; }
+        case "texture": { const v = this.textures.get(ref.id); if (v) patch.textures.push(v); break; }
+        case "instance": { const v = this.instances.get(ref.id); if (v) patch.instances.push(v); break; }
+      }
+    }
+    return patch;
+  }
+
+  /**
+   * Marks this browser's whole visible slice of the world as dirty — its own player/house,
+   * its published objects and their textures, and every instance placed in its house (or
+   * held inside one of those, even ownerless ones deposited by a visitor). Called once right
+   * after connecting to push a full "here's what I know" snapshot (spec: "envoyé au serveur
+   * à la connexion"), the same way any later single change is pushed.
+   */
+  markOwnSliceDirty(): void {
+    const player = this.players.get(this.localPlayerId);
+    if (!player) return;
+    this.markDirty("player", player.id);
+    this.markDirty("house", player.houseId);
+    for (const def of this.defs.values()) {
+      if (def.creatorId === this.localPlayerId && def.published) this.markDirty("def", def.id);
+    }
+    for (const tex of this.textures.values()) {
+      if (tex.ownerId === this.localPlayerId) this.markDirty("texture", tex.id);
+    }
+    for (const inst of this.instances.values()) {
+      if (inst.ownerId === this.localPlayerId) { this.markDirty("instance", inst.id); continue; }
+      if (inst.location.kind === "house" && inst.location.houseId === player.houseId) { this.markDirty("instance", inst.id); continue; }
+      if (inst.location.kind === "instance_inventory") {
+        const host = this.instances.get(inst.location.hostInstanceId);
+        if (host?.location.kind === "house" && host.location.houseId === player.houseId) this.markDirty("instance", inst.id);
+      }
+    }
+  }
+
+  /** Merges entities pushed by another client (or the server's initial world snapshot) — never re-marks them dirty. */
+  applyRemotePatch(patch: WorldPatch): void {
+    if (isPatchEmpty(patch)) return;
+    for (const p of patch.players) this.players.set(p.id, p);
+    for (const h of patch.houses) this.houses.set(h.id, h);
+    for (const d of patch.defs) this.defs.set(d.id, d);
+    for (const t of patch.textures) this.textures.set(t.id, t);
+    for (const i of patch.instances) this.instances.set(i.id, i);
+    this.notify();
+  }
+
+  /**
+   * The server's authoritative answer to "where is my house in the street". A freshly created
+   * house is laid out locally (see createLocalPlayer) *before* the server has had a chance to
+   * say where it really belongs among everyone else's houses — reassigning its slot here can
+   * shift its origin, so the owner's stored position (itself computed from that same provisional
+   * layout) is nudged by the same delta, or they'd render stranded wherever the guess used to be.
+   */
+  applyAssignedSlot(houseId: HouseId, slotIndex: number): void {
+    const house = this.houses.get(houseId);
+    if (!house || house.slotIndex === slotIndex) return;
+    const before = computeHouseLayout([...this.houses.values()]).find((e) => e.houseId === houseId);
+    house.slotIndex = slotIndex;
+    const after = computeHouseLayout([...this.houses.values()]).find((e) => e.houseId === houseId);
+    const owner = this.players.get(house.ownerId);
+    if (before && after && owner) {
+      owner.position = { x: owner.position.x + (after.originX - before.originX), z: owner.position.z };
+      this.markDirty("player", owner.id);
+    }
+    this.markDirty("house", house.id);
+    this.notify();
+  }
+
+  /** A remote player's script said something — show their speech bubble locally too, without persisting it. */
+  pushRemoteSpeechBubble(targetInstanceId: string, text: string): void {
+    this.speechBubbles = this.speechBubbles.filter((b) => b.targetInstanceId !== targetInstanceId);
+    this.speechBubbles.push({ targetInstanceId, text, expiresAt: Date.now() + 4000 });
+    this.notify();
   }
 
   // ---------------------------------------------------------------------
@@ -143,6 +302,8 @@ export class GameEngine {
   getPlayer(id: PlayerId): Player | undefined { return this.players.get(id); }
   listPlayers(): Player[] { return [...this.players.values()]; }
   getHouse(id: HouseId): House | undefined { return this.houses.get(id); }
+  listHouses(): House[] { return [...this.houses.values()].sort((a, b) => a.slotIndex - b.slotIndex); }
+  getLocalPlayerId(): PlayerId { return this.localPlayerId; }
   getDefinition(id: ObjectDefId): ObjectDefinition | undefined { return this.defs.get(id); }
   listDefinitionsByCreator(creatorId: PlayerId): ObjectDefinition[] {
     return [...this.defs.values()].filter((d) => d.creatorId === creatorId);
@@ -221,6 +382,7 @@ export class GameEngine {
       updatedAt: now,
     };
     this.textures.set(tex.id, tex);
+    this.markDirty("texture", tex.id);
     this.notify();
     return tex;
   }
@@ -230,6 +392,7 @@ export class GameEngine {
     if (!tex) return;
     tex.pixels = pixels;
     tex.updatedAt = Date.now();
+    this.markDirty("texture", tex.id);
     this.notify();
   }
 
@@ -246,6 +409,7 @@ export class GameEngine {
     tex.size = newSize;
     tex.pixels = next;
     tex.updatedAt = Date.now();
+    this.markDirty("texture", tex.id);
     this.notify();
   }
 
@@ -254,6 +418,7 @@ export class GameEngine {
     if (!tex) return;
     tex.name = name;
     tex.updatedAt = Date.now();
+    this.markDirty("texture", tex.id);
     this.notify();
   }
 
@@ -282,6 +447,7 @@ export class GameEngine {
     const tex = this.createTexture(def.creatorId, trimmed, size);
     def.textureLibrary = { ...def.textureLibrary, [trimmed]: tex.id };
     def.updatedAt = Date.now();
+    this.markDirty("def", def.id);
     this.notify();
     return { ok: true, texture: tex };
   }
@@ -305,6 +471,7 @@ export class GameEngine {
     def.textureLibrary = nextLibrary;
     def.textures = nextFaces;
     def.updatedAt = Date.now();
+    this.markDirty("def", def.id);
     this.notify();
     return { ok: true };
   }
@@ -319,6 +486,7 @@ export class GameEngine {
     delete nextLibrary[name];
     def.textureLibrary = nextLibrary;
     def.updatedAt = Date.now();
+    this.markDirty("def", def.id);
     this.notify();
     return { ok: true };
   }
@@ -332,6 +500,7 @@ export class GameEngine {
     if (!(name in def.textureLibrary)) return { ok: false, reason: "Texture introuvable dans la bibliothèque" };
     def.textures = { ...def.textures, [face]: name };
     def.updatedAt = Date.now();
+    this.markDirty("def", def.id);
     this.notify();
     return { ok: true };
   }
@@ -405,6 +574,7 @@ export class GameEngine {
     const def = this.defs.get(defId);
     if (!def) return;
     Object.assign(def, patch, { updatedAt: Date.now() });
+    if (def.published) this.markDirty("def", def.id);
     this.notify();
   }
 
@@ -442,6 +612,7 @@ export class GameEngine {
     if (!wasPublished) {
       instance = this.instantiate(def.id, def.creatorId, { kind: "inventory" });
     }
+    this.markDirty("def", def.id);
     this.notify();
     return { ok: true, instance };
   }
@@ -462,27 +633,41 @@ export class GameEngine {
       createdAt: Date.now(),
     };
     this.instances.set(inst.id, inst);
+    this.markDirty("instance", inst.id);
     if (def) void this.runEventForInstance(inst, def, "on_create", []);
     this.notify();
     return inst;
   }
 
-  placeFromInventory(instanceId: ObjectInstanceId, houseId: HouseId, x: number, z: number, rotationY = 0): { ok: boolean; reason?: string } {
+  /**
+   * requesterId must both own `instanceId` and own `houseId` — placing (or moving) a block is
+   * the one action a visitor must never be able to do in someone else's house (spec: "il ne doit
+   * pas être possible de modifier dans les maisons des autres"). The World UI already only ever
+   * wires a floor-click handler for the current player's own house, but the engine checks it too
+   * since it's the boundary a future real server would enforce authoritatively.
+   */
+  placeFromInventory(instanceId: ObjectInstanceId, requesterId: PlayerId, houseId: HouseId, x: number, z: number, rotationY = 0): { ok: boolean; reason?: string } {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
     if (inst.location.kind !== "inventory") return { ok: false, reason: "Cet objet n'est pas dans l'inventaire" };
+    if (inst.ownerId !== requesterId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
     const house = this.houses.get(houseId);
     if (!house) return { ok: false, reason: "Maison introuvable" };
+    if (house.ownerId !== requesterId) return { ok: false, reason: "Vous ne pouvez placer des objets que dans votre propre maison" };
     inst.location = { kind: "house", houseId, x, y: 0, z, rotationY };
+    this.markDirty("instance", inst.id);
     this.notify();
     return { ok: true };
   }
 
-  moveInstance(instanceId: ObjectInstanceId, x: number, z: number, rotationY?: number): void {
+  moveInstance(instanceId: ObjectInstanceId, requesterId: PlayerId, x: number, z: number, rotationY?: number): { ok: boolean; reason?: string } {
     const inst = this.instances.get(instanceId);
-    if (!inst || inst.location.kind !== "house") return;
+    if (!inst || inst.location.kind !== "house") return { ok: false, reason: "Cet objet n'est pas placé" };
+    if (inst.ownerId !== requesterId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
     inst.location = { ...inst.location, x, z, rotationY: rotationY ?? inst.location.rotationY };
+    this.markDirty("instance", inst.id);
     this.notify();
+    return { ok: true };
   }
 
   pickupToInventory(instanceId: ObjectInstanceId, requesterId: PlayerId): { ok: boolean; reason?: string } {
@@ -491,6 +676,7 @@ export class GameEngine {
     if (inst.location.kind !== "house") return { ok: false, reason: "Cet objet n'est pas placé" };
     if (inst.ownerId !== requesterId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
     inst.location = { kind: "inventory" };
+    this.markDirty("instance", inst.id);
     this.notify();
     return { ok: true };
   }
@@ -512,6 +698,7 @@ export class GameEngine {
       owner.money += inst.wallet;
       this.pushLog("result", `+${inst.wallet} coins récupérés de "${def?.name ?? inst.id}"`);
       inst.wallet = 0;
+      this.markDirty("player", owner.id);
     }
     let recoveredItems = 0;
     for (const held of this.listInstanceInventory(instanceId)) {
@@ -521,12 +708,14 @@ export class GameEngine {
         heldInst.ownerId = requesterId;
         heldInst.location = { kind: "inventory" };
         recoveredItems++;
+        this.markDirty("instance", heldInst.id);
       }
     }
     if (recoveredItems > 0) {
       this.pushLog("result", `${recoveredItems} objet(s) récupéré(s) de "${def?.name ?? inst.id}"`);
     }
     inst.location = { kind: "inventory" };
+    this.markDirty("instance", inst.id);
     this.pushLog("result", `"${def?.name ?? inst.id}" récupéré dans l'inventaire`);
     this.notify();
     return { ok: true };
@@ -550,6 +739,8 @@ export class GameEngine {
     inst.wallet -= amount;
     player.money += amount;
     this.pushLog("result", `Retrait: +${amount} coins depuis ${instanceId}`);
+    this.markDirty("instance", inst.id);
+    this.markDirty("player", playerId);
     this.notify();
     return { ok: true };
   }
@@ -565,6 +756,8 @@ export class GameEngine {
     player.money -= amount;
     inst.wallet += amount;
     this.pushLog("result", `Dépôt: -${amount} coins vers ${instanceId}`);
+    this.markDirty("instance", inst.id);
+    this.markDirty("player", playerId);
     this.notify();
     return { ok: true };
   }
@@ -579,6 +772,7 @@ export class GameEngine {
     }
     item.ownerId = playerId;
     item.location = { kind: "inventory" };
+    this.markDirty("instance", item.id);
     this.notify();
     return { ok: true };
   }
@@ -594,6 +788,7 @@ export class GameEngine {
     }
     item.ownerId = null;
     item.location = { kind: "instance_inventory", hostInstanceId: instanceId };
+    this.markDirty("instance", item.id);
     this.notify();
     return { ok: true };
   }
@@ -629,6 +824,9 @@ export class GameEngine {
           // right after a result) must show the latest one, not whichever is oldest in the array.
           this.speechBubbles = this.speechBubbles.filter((b) => b.targetInstanceId !== instance.id);
           this.speechBubbles.push({ targetInstanceId: instance.id, text, expiresAt: Date.now() + 4000 });
+          // This event only ever runs client-side against the player who's actually
+          // interacting — broadcast it as ephemeral so anyone else nearby sees it too.
+          this.onLocalSpeech?.(instance.id, text);
         }
         this.pushLog("info", `💬 ${def.name}: "${text}"`);
         this.notify();
@@ -649,6 +847,7 @@ export class GameEngine {
           );
         }
         instance.state[`textureOverride_${hasFace ? face : "__all__"}`] = name;
+        this.markDirty("instance", instance.id);
         this.notify();
       },
       getTexture: (face) => {
@@ -663,11 +862,13 @@ export class GameEngine {
       playAnimation: (name) => {
         instance.state["_animation"] = name;
         instance.state["_animationAt"] = Date.now();
+        this.markDirty("instance", instance.id);
         this.notify();
       },
       getState: (key) => (key in instance.state ? instance.state[key] : null),
       setState: (key, value) => {
         instance.state[key] = value;
+        this.markDirty("instance", instance.id);
         this.notify();
       },
       getProperty: (key) => (key in def.properties ? def.properties[key] : null),
@@ -887,6 +1088,8 @@ export class GameEngine {
       const sourceInstance = tx.sourceInstanceId ? this.instances.get(tx.sourceInstanceId) : undefined;
       if (sourceInstance) sourceInstance.wallet = (sourceInstance.wallet ?? 0) + (tx.amount ?? 0);
       this.pushLog("result", `-${tx.amount} coins (${tx.sourceDefName})`);
+      this.markDirty("player", player.id);
+      if (sourceInstance) this.markDirty("instance", sourceInstance.id);
       resolve({ accepted: true });
       this.notify();
       return;
@@ -905,6 +1108,7 @@ export class GameEngine {
     owned.ownerId = null;
     owned.location = { kind: "instance_inventory", hostInstanceId: tx.sourceInstanceId };
     this.pushLog("result", `-1× ${tx.objectDefName} (donné à ${tx.sourceDefName})`);
+    this.markDirty("instance", owned.id);
     resolve({ accepted: true });
     this.notify();
   }
@@ -918,6 +1122,8 @@ export class GameEngine {
     instance.wallet -= amount;
     target.money += amount;
     this.pushLog("result", `💰 ${instance.id} envoie ${amount} coins à ${target.name}`);
+    this.markDirty("instance", instance.id);
+    this.markDirty("player", target.id);
     this.notify();
     return { ok: true };
   }
@@ -1012,6 +1218,7 @@ export class GameEngine {
       stocked.ownerId = playerId;
       stocked.location = { kind: "inventory" };
       this.pushLog("result", `Objet reçu (en stock): ${targetDef.name}`);
+      this.markDirty("instance", stocked.id);
       this.notify();
       return { ok: true };
     }
@@ -1067,6 +1274,31 @@ export class GameEngine {
     const player = this.players.get(playerId);
     if (!player) return;
     player.position = { x, z };
+    this.markDirty("player", playerId);
     this.notify();
+  }
+
+  // ---------------------------------------------------------------------
+  // House manager — expanding your own house costs a few coins (spec-extension).
+  // ---------------------------------------------------------------------
+
+  expandHouse(playerId: PlayerId, houseId: HouseId): { ok: boolean; reason?: string; cost?: number } {
+    const house = this.houses.get(houseId);
+    if (!house) return { ok: false, reason: "Maison introuvable" };
+    if (house.ownerId !== playerId) return { ok: false, reason: "Vous ne possédez pas cette maison" };
+    if (house.width >= HOUSE_MAX_SIZE) return { ok: false, reason: "Taille maximale atteinte" };
+    const player = this.players.get(playerId);
+    if (!player) return { ok: false, reason: "Joueur introuvable" };
+    const cost = houseExpandCost(house.expansions);
+    if (player.money < cost) return { ok: false, reason: `Il vous manque ${cost - player.money} coins` };
+    player.money -= cost;
+    house.width = Math.min(HOUSE_MAX_SIZE, house.width + HOUSE_EXPAND_STEP);
+    house.depth = Math.min(HOUSE_MAX_SIZE, house.depth + HOUSE_EXPAND_STEP);
+    house.expansions += 1;
+    this.pushLog("result", `🏡 Maison agrandie (${house.width}×${house.depth}) pour ${cost} coins`);
+    this.markDirty("house", house.id);
+    this.markDirty("player", playerId);
+    this.notify();
+    return { ok: true, cost };
   }
 }

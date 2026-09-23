@@ -99,6 +99,15 @@ export interface House {
   ownerId: PlayerId;
   width: number;
   depth: number;
+  /**
+   * Where this house sits in the shared street, left to right (0, 1, 2…).
+   * Assigned client-side when a house is first created, then confirmed/rewritten
+   * by the multiplayer server the first time it sees that player, so two people
+   * who never met before don't independently pick the same slot (see src/net).
+   */
+  slotIndex: number;
+  /** How many times the owner has paid to expand it — drives the next expansion's cost. */
+  expansions: number;
 }
 
 export interface PendingTransaction {

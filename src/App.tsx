@@ -14,12 +14,10 @@ import "./App.css";
 function App() {
   const view = useGameStore((s) => s.view);
   const editingDefId = useGameStore((s) => s.editingDefId);
-  const currentPlayerId = useGameStore((s) => s.currentPlayerId);
 
   useEffect(() => {
-    const player = engine.getPlayer(currentPlayerId);
-    if (player) void engine.enterHouse(currentPlayerId, player.houseId);
-
+    // on_player_enter for the player's starting house (and any house they later walk into)
+    // fires from PlayerMesh's house-crossing detection instead of a one-shot mount effect.
     const tickInterval = setInterval(() => {
       void engine.tickAll();
     }, 3000);

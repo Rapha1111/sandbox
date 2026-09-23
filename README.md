@@ -46,7 +46,17 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
   de pas d'exécution (garde-fou anti-boucle infinie) et éditeur CodeMirror
   avec coloration syntaxique + bouton **Tester** qui exécute l'évènement
   choisi sur un objet éphémère et affiche le résultat dans la console de
-  debug, sans jamais faire planter le jeu (erreurs capturées).
+  debug, sans jamais faire planter le jeu (erreurs capturées). Fonctions
+  utilitaires intégrées : `time()`, `randint(a, b)`, `random()`,
+  `choice(liste)`, `floor(n)`, `ceil(n)`, en plus de `range`/`len`/`str`/
+  `int`/`abs`/`min`/`max`/`round`/`log`.
+- **Boîtes de dialogue** — un script peut demander une saisie au joueur :
+  `player.ask_text(question)` (champ de texte), `player.ask_choice(question,
+  [options])` (sélecteur), `player.ask_yes_no(question)` (Oui/Non, retourne
+  directement un booléen) et `player.ask_number(question, min, max)` (champ
+  numérique borné — passez `True` en 4ᵉ argument pour l'afficher comme un
+  curseur/slider à la place). Toutes (sauf `ask_yes_no`) retournent un objet
+  `.accepted`/`.value`, `.accepted` étant `False` si le joueur annule.
 - **Économie & transactions (P4)** — monnaie (`Coin`), inventaire par
   empilement d'instances, `player.request_money(montant)` ouvre une modale
   de confirmation ; la transaction (vérification du solde + débit) est
@@ -98,11 +108,12 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
   `object.send_money()` ne peut mouvementer que le solde déjà collecté par
   l'objet — il ne peut ni créer d'argent ni débiter un joueur.
 
-Le monde démarre avec 6 objets déjà publiés (Cube Bonjour, Machine à soda,
-Distributeur de tickets, Ticket, Cagnotte, Coffre à dons) pour illustrer
-immédiatement le flux complet décrit aux §29–31 de la spec ainsi que les
-textures multiples, le solde des objets et le stockage d'objets dans une
-machine, tout en laissant le joueur créer les siens.
+Le monde démarre avec 8 objets déjà publiés (Cube Bonjour, Machine à soda,
+Distributeur de tickets, Ticket, Cagnotte, Coffre à dons, Machine à
+devinette, Livre d'or) pour illustrer immédiatement le flux complet décrit
+aux §29–31 de la spec ainsi que les textures multiples, le solde des
+objets, le stockage d'objets dans une machine et les boîtes de dialogue,
+tout en laissant le joueur créer les siens.
 
 ## Architecture
 
@@ -157,6 +168,11 @@ plus tard.
    → Accepter → le Ticket disparaît de l'inventaire du joueur (stocké dans
    le Coffre) ; sans Ticket en poche, la demande est automatiquement
    refusée avec le message "vous ne possédez pas cet objet".
+8. Boîtes de dialogue : interagir avec la "Machine à devinette" → boîte
+   Oui/Non, puis champ numérique (1 à 10) → un nombre aléatoire
+   (`randint`) est tiré et comparé → message de victoire/défaite, puis un
+   cooldown de 5s (`time()`) empêche de rejouer immédiatement. Le "Livre
+   d'or" enchaîne un champ de texte puis un sélecteur de couleur.
 
 ## Volontairement non traité dans ce prototype (voir spec §35)
 

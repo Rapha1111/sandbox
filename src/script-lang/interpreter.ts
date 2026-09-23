@@ -340,6 +340,36 @@ const BUILTINS: Record<string, ScriptValue> = {
   min: { name: "min", __call: (_i, args, line) => { args.forEach((a) => assertNum(a, line)); return Math.min(...(args as number[])); } },
   max: { name: "max", __call: (_i, args, line) => { args.forEach((a) => assertNum(a, line)); return Math.max(...(args as number[])); } },
   round: { name: "round", __call: (_i, args, line) => { assertNum(args[0], line); return Math.round(args[0] as number); } },
+  floor: { name: "floor", __call: (_i, args, line) => { assertNum(args[0], line); return Math.floor(args[0] as number); } },
+  ceil: { name: "ceil", __call: (_i, args, line) => { assertNum(args[0], line); return Math.ceil(args[0] as number); } },
+  /** Seconds since 1970-01-01 (like Python's time.time()) — use it for cooldowns/timers: e.g.
+   * store `time()` in object state on an action, then compare against it later in on_tick. */
+  time: { name: "time", __call: () => Date.now() / 1000 },
+  /** Random integer in [a, b], both inclusive (like Python's random.randint). */
+  randint: {
+    name: "randint",
+    __call: (_i, args, line) => {
+      assertNum(args[0], line);
+      assertNum(args[1], line);
+      const a = Math.trunc(args[0] as number);
+      const b = Math.trunc(args[1] as number);
+      if (a > b) throw new ScriptRuntimeError("randint(a, b) attend a <= b", line);
+      return a + Math.floor(Math.random() * (b - a + 1));
+    },
+  },
+  /** Random float in [0, 1) (like Python's random.random()). */
+  random: { name: "random", __call: () => Math.random() },
+  /** Picks a random element from a non-empty list (like Python's random.choice()). */
+  choice: {
+    name: "choice",
+    __call: (_i, args, line) => {
+      const list = args[0];
+      if (!Array.isArray(list) || list.length === 0) {
+        throw new ScriptRuntimeError("choice() attend une liste non vide", line);
+      }
+      return list[Math.floor(Math.random() * list.length)];
+    },
+  },
   log: {
     name: "log",
     __call: (interp, args) => {

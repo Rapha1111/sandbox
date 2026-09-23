@@ -20,9 +20,11 @@ import type {
   ObjectDefinition,
   ObjectInstance,
   ObjectInstanceId,
+  PendingPrompt,
   PendingTransaction,
   Player,
   PlayerId,
+  PromptOutcome,
   SaveGame,
   Texture,
   TextureId,
@@ -55,6 +57,8 @@ export class GameEngine {
 
   private pendingTransactions = new Map<string, PendingTransaction>();
   private transactionResolvers = new Map<string, (r: TransactionOutcome) => void>();
+  private pendingPrompts = new Map<string, PendingPrompt>();
+  private promptResolvers = new Map<string, (r: PromptOutcome) => void>();
   private debugLog: DebugLogEntry[] = [];
   private speechBubbles: SpeechBubble[] = [];
 
@@ -265,6 +269,49 @@ export class GameEngine {
       "#f59e0b",
       2, 1
     );
+
+    // Demonstrates player.ask_yes_no()/ask_number(), randint() and time()-based cooldowns.
+    publishAt(
+      "Machine à devinette",
+      [
+        "def on_interact(player):",
+        '    pret = object.get_state("pret_a")',
+        "    if pret != None and time() < pret:",
+        '        player.say("Attendez un peu avant de rejouer...")',
+        "        return",
+        '    jouer = player.ask_yes_no("Deviner un nombre entre 1 et 10 ?")',
+        "    if jouer:",
+        '        reponse = player.ask_number("Votre nombre ?", 1, 10)',
+        "        if reponse.accepted:",
+        "            mystere = randint(1, 10)",
+        "            if reponse.value == mystere:",
+        '                player.say("Bravo ! C\'était " + str(mystere) + " !")',
+        "            else:",
+        '                player.say("Raté, c\'était " + str(mystere) + ".")',
+        '            object.set_state("pret_a", time() + 5)',
+        "    else:",
+        '        player.say("D\'accord, une autre fois !")',
+        "",
+      ].join("\n"),
+      "#0ea5e9",
+      -2, 1
+    );
+
+    // Demonstrates player.ask_text() and player.ask_choice().
+    publishAt(
+      "Livre d'or",
+      [
+        "def on_interact(player):",
+        '    nom = player.ask_text("Laissez votre nom dans le livre d\'or")',
+        "    if nom.accepted:",
+        '        couleur = player.ask_choice("Choisissez une couleur", ["Rouge", "Vert", "Bleu"])',
+        "        if couleur.accepted:",
+        '            player.say(nom.value + " a signé en " + couleur.value + " !")',
+        "",
+      ].join("\n"),
+      "#ec4899",
+      0, 2
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -314,6 +361,7 @@ export class GameEngine {
   }
 
   getPendingTransactions(): PendingTransaction[] { return [...this.pendingTransactions.values()]; }
+  getPendingPrompts(): PendingPrompt[] { return [...this.pendingPrompts.values()]; }
   getDebugLog(): DebugLogEntry[] { return this.debugLog; }
   getSpeechBubbles(): SpeechBubble[] {
     const now = Date.now();
@@ -663,6 +711,9 @@ export class GameEngine {
       spawn: (defIdOrName) => Promise.resolve(this.spawnSensitive(instance, defIdOrName)),
       say: (text) => {
         if (playerId) {
+          // Replace, don't stack: two say() calls close together (e.g. a cooldown message
+          // right after a result) must show the latest one, not whichever is oldest in the array.
+          this.speechBubbles = this.speechBubbles.filter((b) => b.targetInstanceId !== instance.id);
           this.speechBubbles.push({ targetInstanceId: instance.id, text, expiresAt: Date.now() + 4000 });
         }
         this.pushLog("info", `💬 ${def.name}: "${text}"`);
@@ -721,6 +772,22 @@ export class GameEngine {
       getInstanceId: () => instance.id,
       getBalance: () => instance.wallet ?? 0,
       sendMoney: (targetPlayerId, amount) => this.sendMoneyFromInstance(instance, targetPlayerId, amount),
+      askText: (question) => {
+        if (!playerId) throw new ScriptRuntimeError("Aucun joueur présent");
+        return this.askText(playerId, question, def.name);
+      },
+      askChoice: (question, choices) => {
+        if (!playerId) throw new ScriptRuntimeError("Aucun joueur présent");
+        return this.askChoice(playerId, question, choices, def.name);
+      },
+      askYesNo: (question) => {
+        if (!playerId) throw new ScriptRuntimeError("Aucun joueur présent");
+        return this.askYesNo(playerId, question, def.name);
+      },
+      askNumber: (question, min, max, slider) => {
+        if (!playerId) throw new ScriptRuntimeError("Aucun joueur présent");
+        return this.askNumber(playerId, question, min, max, slider, def.name);
+      },
     };
   }
 
@@ -939,6 +1006,65 @@ export class GameEngine {
     this.pushLog("result", `💰 ${instance.id} envoie ${amount} coins à ${target.name}`);
     this.notify();
     return { ok: true };
+  }
+
+  // ---------------------------------------------------------------------
+  // Prompt manager — generic input dialogs a script can pop up for the
+  // player: text field, selector, yes/no dialog, number field/slider
+  // (spec-extension, same request→modal→resolve shape as request_money).
+  // ---------------------------------------------------------------------
+
+  private createPrompt(spec: Omit<PendingPrompt, "id" | "createdAt">): Promise<PromptOutcome> {
+    const prompt: PendingPrompt = { id: genId("prompt"), createdAt: Date.now(), ...spec };
+    this.logAction(`player.ask_${prompt.kind}`, `"${prompt.question}" à ${prompt.playerId}`);
+    this.pendingPrompts.set(prompt.id, prompt);
+    this.notify();
+    return new Promise<PromptOutcome>((resolve) => {
+      this.promptResolvers.set(prompt.id, resolve);
+    });
+  }
+
+  askText(playerId: PlayerId, question: string, sourceDefName: string): Promise<PromptOutcome> {
+    return this.createPrompt({ kind: "text", playerId, question, sourceDefName });
+  }
+
+  askChoice(playerId: PlayerId, question: string, choices: string[], sourceDefName: string): Promise<PromptOutcome> {
+    return this.createPrompt({ kind: "choice", playerId, question, choices, sourceDefName });
+  }
+
+  askNumber(playerId: PlayerId, question: string, min: number, max: number, slider: boolean, sourceDefName: string): Promise<PromptOutcome> {
+    return this.createPrompt({ kind: "number", playerId, question, min, max, slider, sourceDefName });
+  }
+
+  async askYesNo(playerId: PlayerId, question: string, sourceDefName: string): Promise<boolean> {
+    const outcome = await this.createPrompt({ kind: "confirm", playerId, question, sourceDefName });
+    return outcome.accepted === true && outcome.value === true;
+  }
+
+  /** `value` is only meaningful when `accepted` is true — a cancelled prompt never carries data forward. */
+  resolvePrompt(promptId: string, accepted: boolean, value?: string | number | boolean): void {
+    const prompt = this.pendingPrompts.get(promptId);
+    const resolve = this.promptResolvers.get(promptId);
+    if (!prompt || !resolve) return;
+    this.pendingPrompts.delete(promptId);
+    this.promptResolvers.delete(promptId);
+
+    if (!accepted) {
+      this.pushLog("result", `Prompt annulé: "${prompt.question}" (${prompt.sourceDefName})`);
+      resolve({ accepted: false });
+      this.notify();
+      return;
+    }
+
+    let finalValue = value;
+    if (prompt.kind === "number" && typeof finalValue === "number") {
+      const min = prompt.min ?? finalValue;
+      const max = prompt.max ?? finalValue;
+      finalValue = Math.min(max, Math.max(min, finalValue));
+    }
+    this.pushLog("result", `Réponse: "${prompt.question}" -> ${String(finalValue)} (${prompt.sourceDefName})`);
+    resolve({ accepted: true, value: finalValue });
+    this.notify();
   }
 
   // ---------------------------------------------------------------------

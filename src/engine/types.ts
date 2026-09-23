@@ -120,6 +120,30 @@ export interface TransactionResult {
   reason?: string;
 }
 
+/** A generic input dialog a script can pop up for the player (spec-extension: player.ask_*()). */
+export type PromptKind = "text" | "choice" | "confirm" | "number";
+
+export interface PendingPrompt {
+  id: string;
+  kind: PromptKind;
+  playerId: PlayerId;
+  question: string;
+  sourceDefName: string;
+  /** "choice" only: the options to pick from. */
+  choices?: string[];
+  /** "number" only. */
+  min?: number;
+  max?: number;
+  /** "number" only: render a range slider instead of a numeric input. */
+  slider?: boolean;
+  createdAt: number;
+}
+
+export interface PromptOutcome {
+  accepted: boolean;
+  value?: string | number | boolean;
+}
+
 export interface DebugLogEntry {
   id: string;
   timestamp: number;

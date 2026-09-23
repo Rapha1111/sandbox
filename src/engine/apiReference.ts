@@ -92,6 +92,43 @@ export const API_REFERENCE: ApiEntry[] = [
     kind: "sensitive",
     example: 'demande = player.request_object("Ticket")\nif demande.accepted:\n    player.say("Merci pour le ticket !")',
   },
+  {
+    group: "player",
+    signature: "player.ask_text(question)",
+    description:
+      "Ouvre une boîte de dialogue avec un champ de texte libre. Retourne un objet avec .accepted (booléen, False si le joueur annule) et .value (le texte saisi).",
+    kind: "local",
+    example: 'reponse = player.ask_text("Quel est votre nom ?")\nif reponse.accepted:\n    player.say("Bonjour " + reponse.value)',
+  },
+  {
+    group: "player",
+    signature: "player.ask_choice(question, [options])",
+    description: "Ouvre une boîte de dialogue avec un sélecteur (menu déroulant) parmi une liste d'options. Retourne .accepted et .value (l'option choisie).",
+    kind: "local",
+    example: 'reponse = player.ask_choice("Quelle couleur ?", ["Rouge", "Vert", "Bleu"])\nif reponse.accepted:\n    object.set_texture(reponse.value)',
+  },
+  {
+    group: "player",
+    signature: "player.ask_yes_no(question)",
+    description: "Ouvre une boîte de dialogue Oui/Non et retourne directement un booléen (pas d'objet .accepted à déballer).",
+    kind: "local",
+    example: 'if player.ask_yes_no("Voulez-vous continuer ?"):\n    player.say("Suite !")',
+  },
+  {
+    group: "player",
+    signature: "player.ask_number(question, min, max)",
+    description:
+      "Ouvre une boîte de dialogue avec un champ numérique borné entre min et max (la valeur retournée est toujours ramenée dans cet intervalle). Retourne .accepted et .value.",
+    kind: "local",
+    example: 'reponse = player.ask_number("Combien de tickets ?", 1, 10)\nif reponse.accepted:\n    n = reponse.value',
+  },
+  {
+    group: "player",
+    signature: "player.ask_number(question, min, max, True)",
+    description: "Même chose, mais affichée comme un curseur (slider) au lieu d'un champ numérique — passez True en 4e argument.",
+    kind: "local",
+    example: 'reponse = player.ask_number("Volume", 0, 100, True)',
+  },
 
   // --- object.* ---
   {
@@ -189,6 +226,15 @@ export const API_REFERENCE: ApiEntry[] = [
   { group: "builtins", signature: "len(texte_ou_liste)", description: "Longueur d'une chaîne ou d'une liste." },
   { group: "builtins", signature: "str(valeur)", description: "Convertit en texte." },
   { group: "builtins", signature: "int(valeur)", description: "Convertit en nombre entier." },
-  { group: "builtins", signature: "abs(n) / min(...) / max(...) / round(n)", description: "Fonctions numériques usuelles." },
+  { group: "builtins", signature: "abs(n) / min(...) / max(...) / round(n) / floor(n) / ceil(n)", description: "Fonctions numériques usuelles." },
+  {
+    group: "builtins",
+    signature: "time()",
+    description: "Secondes écoulées depuis 1970 (comme time.time() en Python). Pratique pour des minuteries/cooldowns : stockez time() dans l'état de l'objet, puis comparez plus tard dans on_tick.",
+    example: 'if object.get_state("pret_a") == None or time() >= object.get_state("pret_a"):\n    object.set_state("pret_a", time() + 5)',
+  },
+  { group: "builtins", signature: "randint(a, b)", description: "Entier aléatoire entre a et b inclus (comme random.randint en Python)." },
+  { group: "builtins", signature: "random()", description: "Nombre décimal aléatoire entre 0 (inclus) et 1 (exclu)." },
+  { group: "builtins", signature: "choice(liste)", description: "Choisit un élément au hasard dans une liste non vide.", example: 'gain = choice(["rien", "10 coins", "un ticket"])' },
   { group: "builtins", signature: "log(...)", description: "Écrit un message dans la console de debug (utile pour déboguer un script)." },
 ];

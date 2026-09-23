@@ -1,0 +1,91 @@
+.prompt-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 20, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.prompt-modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px 28px;
+  width: 320px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.prompt-modal__source {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-dim);
+  margin: 0 0 6px;
+}
+
+.prompt-modal__question {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+
+.prompt-modal__text,
+.prompt-modal__select {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.prompt-modal__number {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.prompt-modal__number input[type="number"] {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.prompt-modal__number input[type="range"] {
+  width: 100%;
+}
+
+.prompt-modal__number-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.prompt-modal__range-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.prompt-modal__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.prompt-modal__actions button {
+  flex: 1;
+  padding: 10px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.prompt-modal__refuse {
+  background: var(--panel-2);
+}
+
+.prompt-modal__accept {
+  background: var(--accent);
+  color: white;
+}

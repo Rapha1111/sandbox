@@ -11,6 +11,11 @@ export interface SensitiveOutcome {
   reason?: string;
 }
 
+export interface PromptOutcome {
+  accepted: boolean;
+  value?: string | number | boolean;
+}
+
 /** Hooks GameEngine supplies for one script event call. Every whitelisted API
  * method bottoms out in exactly one of these — nothing else is reachable. */
 export interface ScriptEngineHooks {
@@ -37,6 +42,11 @@ export interface ScriptEngineHooks {
   getBalance(): number;
   /** Pays out of the object's own collected balance to any player id — never touches a player's own wallet. */
   sendMoney(targetPlayerId: string, amount: number): SensitiveOutcome;
+  /** Generic input dialogs a script can pop up for the player. */
+  askText(question: string): Promise<PromptOutcome>;
+  askChoice(question: string, choices: string[]): Promise<PromptOutcome>;
+  askYesNo(question: string): Promise<boolean>;
+  askNumber(question: string, min: number, max: number, slider: boolean): Promise<PromptOutcome>;
 }
 
 function requireString(v: ScriptValue, what: string, line: number): string {
@@ -50,6 +60,10 @@ function requireNumber(v: ScriptValue, what: string, line: number): number {
 function requirePrimitive(v: ScriptValue, what: string, line: number): string | number | boolean {
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
   throw new ScriptRuntimeError(`${what} n'accepte que du texte, un nombre ou un booléen`, line);
+}
+function requireStringList(v: ScriptValue, what: string, line: number): string[] {
+  if (!Array.isArray(v) || v.length === 0) throw new ScriptRuntimeError(`${what} attend une liste d'options non vide`, line);
+  return v.map((item, i) => requireString(item, `${what} (option #${i})`, line));
 }
 
 export function buildPlayerHost(hooks: ScriptEngineHooks): HostObject {
@@ -77,6 +91,30 @@ export function buildPlayerHost(hooks: ScriptEngineHooks): HostObject {
         accepted: outcome.accepted,
         reason: outcome.reason ?? "",
       });
+    },
+    ask_text: async (_i, args, line) => {
+      const question = requireString(args[0], "player.ask_text()", line);
+      const outcome = await hooks.askText(question);
+      return hostObject("PromptResult", { accepted: outcome.accepted, value: outcome.value ?? "" });
+    },
+    ask_choice: async (_i, args, line) => {
+      const question = requireString(args[0], "player.ask_choice()", line);
+      const choices = requireStringList(args[1], "player.ask_choice()", line);
+      const outcome = await hooks.askChoice(question, choices);
+      return hostObject("PromptResult", { accepted: outcome.accepted, value: outcome.value ?? "" });
+    },
+    ask_yes_no: async (_i, args, line) => {
+      const question = requireString(args[0], "player.ask_yes_no()", line);
+      return await hooks.askYesNo(question);
+    },
+    ask_number: async (_i, args, line) => {
+      const question = requireString(args[0], "player.ask_number()", line);
+      const min = requireNumber(args[1], "player.ask_number()", line);
+      const max = requireNumber(args[2], "player.ask_number()", line);
+      if (min > max) throw new ScriptRuntimeError("player.ask_number(): min doit être <= max", line);
+      const slider = args.length > 3 ? Boolean(requirePrimitive(args[3], "player.ask_number()", line)) : false;
+      const outcome = await hooks.askNumber(question, min, max, slider);
+      return hostObject("PromptResult", { accepted: outcome.accepted, value: outcome.value ?? min });
     },
   });
 }

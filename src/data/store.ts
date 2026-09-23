@@ -85,6 +85,25 @@ export function closeMachineInventory(): void {
   useGameStore.setState({ viewingInstanceInventoryId: null });
 }
 
+/**
+ * True whenever a modal/panel is covering the world — the Object Creator, a
+ * transaction or prompt confirmation, the inventory, the API help, a block's
+ * context menu or its storage panel. Used to stop WASD/arrow keys typed while
+ * filling in a field (or just clicking a button) from also moving the player
+ * behind the dialog.
+ */
+export function isWorldInputBlocked(): boolean {
+  const s = useGameStore.getState();
+  if (s.view === "editor") return true;
+  if (s.inventoryOpen) return true;
+  if (s.apiHelpOpen) return true;
+  if (s.contextMenu) return true;
+  if (s.viewingInstanceInventoryId) return true;
+  if (engine.getPendingTransactions().some((t) => t.playerId === s.currentPlayerId)) return true;
+  if (engine.getPendingPrompts().some((p) => p.playerId === s.currentPlayerId)) return true;
+  return false;
+}
+
 /** Move an already-placed block: pick it up then immediately re-enter placement mode for it. */
 export function startMoving(instanceId: string): void {
   const playerId = useGameStore.getState().currentPlayerId;

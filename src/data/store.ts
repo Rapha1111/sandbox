@@ -13,6 +13,7 @@ interface UiState {
   view: "world" | "editor";
   inventoryOpen: boolean;
   placingInstanceId: string | null;
+  apiHelpOpen: boolean;
 }
 
 const firstPlayer = engine.listPlayers()[0];
@@ -25,6 +26,7 @@ export const useGameStore = create<UiState>()(() => ({
   view: "world",
   inventoryOpen: false,
   placingInstanceId: null,
+  apiHelpOpen: false,
 }));
 
 engine.subscribe(() => {
@@ -55,4 +57,8 @@ export function startPlacing(instanceId: string): void {
 
 export function cancelPlacing(): void {
   useGameStore.setState({ placingInstanceId: null });
+}
+
+export function toggleApiHelp(): void {
+  useGameStore.setState((s) => ({ apiHelpOpen: !s.apiHelpOpen }));
 }

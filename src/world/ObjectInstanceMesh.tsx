@@ -32,15 +32,14 @@ export function ObjectInstanceMesh({
 
   const materials = useMemo(() => {
     return FACE_ORDER.map((face) => {
-      const overrideId = (instance.state[`textureOverride_${face}`] as string | undefined)
+      const name = (instance.state[`textureOverride_${face}`] as string | undefined)
         ?? (instance.state["textureOverride___all__"] as string | undefined)
         ?? def.textures[face];
-      const tex = overrideId ? engine.getTexture(overrideId) : undefined;
+      const tex = engine.resolveLibraryTexture(def, name);
       const map = tex ? pixelsToThreeTexture(tex) : fallback;
       return new THREE.MeshLambertMaterial({ map });
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     });
-  }, [def.textures, instance.state, fallback]);
+  }, [def, instance.state, fallback]);
 
   if (instance.location.kind !== "house") return null;
   const { x, z, rotationY } = instance.location;

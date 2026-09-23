@@ -18,13 +18,21 @@ export interface ScriptEngineHooks {
   giveItem(defIdOrName: string): Promise<SensitiveOutcome>;
   spawn(defIdOrName: string): Promise<SensitiveOutcome>;
   say(text: string): void;
-  setTexture(textureIdOrFace: string, maybeTextureId?: string): void;
+  /** `name` is a key into the object's own texture library (see object.get_texture()), not a raw texture id. */
+  setTexture(nameOrFace: string, maybeName?: string): void;
+  /** Without a face, returns the current "all faces" override name (or null). With a face, returns what's currently showing there. */
+  getTexture(face?: string): ScriptValue;
   playAnimation(name: string): void;
   getState(key: string): ScriptValue;
   setState(key: string, value: string | number | boolean): void;
   getProperty(key: string): ScriptValue;
   getMoney(): number;
   getName(): string;
+  getPlayerId(): string;
+  /** Coins this object has collected via accepted player.request_money() calls. */
+  getBalance(): number;
+  /** Pays out of the object's own collected balance to any player id — never touches a player's own wallet. */
+  sendMoney(targetPlayerId: string, amount: number): SensitiveOutcome;
 }
 
 function requireString(v: ScriptValue, what: string, line: number): string {
@@ -48,6 +56,7 @@ export function buildPlayerHost(hooks: ScriptEngineHooks): HostObject {
     },
     get_money: () => hooks.getMoney(),
     get_name: () => hooks.getName(),
+    get_id: () => hooks.getPlayerId(),
     request_money: async (_i, args, line) => {
       const amount = requireNumber(args[0], "player.request_money()", line);
       if (amount <= 0) throw new ScriptRuntimeError("player.request_money() attend un montant positif", line);
@@ -73,6 +82,10 @@ export function buildObjectHost(hooks: ScriptEngineHooks): HostObject {
       }
       return null;
     },
+    get_texture: (_i, args, line) => {
+      const face = args.length ? requireString(args[0], "object.get_texture()", line) : undefined;
+      return hooks.getTexture(face);
+    },
     play_animation: (_i, args, line) => {
       hooks.playAnimation(requireString(args[0], "object.play_animation()", line));
       return null;
@@ -95,6 +108,14 @@ export function buildObjectHost(hooks: ScriptEngineHooks): HostObject {
       const defId = requireString(args[0], "object.spawn()", line);
       const result = await hooks.spawn(defId);
       if (!result.ok) throw new ScriptRuntimeError(`object.spawn() a échoué: ${result.reason ?? "inconnu"}`, line);
+      return null;
+    },
+    get_balance: () => hooks.getBalance(),
+    send_money: (_i, args, line) => {
+      const targetPlayerId = requireString(args[0], "object.send_money()", line);
+      const amount = requireNumber(args[1], "object.send_money()", line);
+      const result = hooks.sendMoney(targetPlayerId, amount);
+      if (!result.ok) throw new ScriptRuntimeError(`object.send_money() a échoué: ${result.reason ?? "inconnu"}`, line);
       return null;
     },
   });

@@ -1,0 +1,128 @@
+.api-help__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 20, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+}
+
+.api-help {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: 640px;
+  max-width: 100%;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
+}
+
+.api-help__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.api-help__header h3 {
+  margin: 0;
+}
+
+.api-help__intro {
+  padding: 10px 18px 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.api-help__body {
+  padding: 8px 18px 18px;
+  overflow-y: auto;
+}
+
+.api-help__group h4 {
+  margin: 16px 0 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.api-help__entry {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.api-help__entry:last-child {
+  border-bottom: none;
+}
+
+.api-help__sig-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.api-help__sig {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  background: var(--panel-2);
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+
+.api-help__tag {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.api-help__tag--local {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.api-help__tag--sensitive {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.api-help__desc {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.api-help__example {
+  margin: 6px 0 0;
+  background: #0b0f19;
+  color: #d6deeb;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.api-help__button {
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  background: var(--panel-2);
+  flex-shrink: 0;
+}

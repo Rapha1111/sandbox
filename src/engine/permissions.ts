@@ -14,14 +14,18 @@ export const ACTION_KIND: Record<string, ActionKind> = {
   "player.say": "local",
   "player.get_money": "local",
   "player.get_name": "local",
+  "player.get_id": "local",
   "object.set_texture": "local",
+  "object.get_texture": "local",
   "object.play_animation": "local",
   "object.get_state": "local",
   "object.set_state": "local",
   "object.get_property": "local",
+  "object.get_balance": "local",
   "player.request_money": "sensitive",
   "object.give_item": "sensitive",
   "object.spawn": "sensitive",
+  "object.send_money": "sensitive",
 };
 
 export function kindOf(action: string): ActionKind {

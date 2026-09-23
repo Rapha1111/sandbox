@@ -1,4 +1,4 @@
-import { engine, useGameStore, toggleInventory, createAndOpenNewObject } from "../data/store";
+import { engine, useGameStore, toggleInventory, createAndOpenNewObject, toggleApiHelp } from "../data/store";
 import "./HUD.css";
 
 export function HUD() {
@@ -19,6 +19,9 @@ export function HUD() {
         <button className="hud__button" onClick={toggleInventory}>🎒 Inventaire</button>
         <button className="hud__button hud__button--accent" onClick={createAndOpenNewObject}>
           ✨ Créer un objet
+        </button>
+        <button className="hud__button hud__button--icon" onClick={toggleApiHelp} title="Commandes disponibles">
+          ?
         </button>
       </div>
     </div>

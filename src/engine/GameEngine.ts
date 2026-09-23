@@ -12,6 +12,7 @@ import type { SaveManager } from "./save";
 import { kindOf } from "./permissions";
 import type {
   DebugLogEntry,
+  FaceName,
   House,
   HouseId,
   InventoryStack,
@@ -134,20 +135,34 @@ export class GameEngine {
 
   /** A few pre-built, published objects so the world isn't empty on first launch (spec §29-31 examples). */
   private seedDemoObjects(playerId: PlayerId, houseId: HouseId): void {
-    const solid = (name: string, color: string) => {
-      const tex = this.createTexture(playerId, name, 16);
-      this.updateTexturePixels(tex.id, new Array(16 * 16).fill(color));
-      return tex.id;
-    };
-    const allFaces = (texId: TextureId) => ({
-      top: texId, bottom: texId, front: texId, back: texId, left: texId, right: texId,
+    const allFaces = (libName: string) => ({
+      top: libName, bottom: libName, front: libName, back: libName, left: libName, right: libName,
     });
-    const publishAt = (name: string, script: string, textures: ObjectDefinition["textures"], x: number, z: number, dims?: Partial<ObjectDefinition["dimensions"]>) => {
+    const publishAt = (
+      name: string,
+      script: string,
+      color: string,
+      x: number,
+      z: number,
+      dims?: Partial<ObjectDefinition["dimensions"]>,
+      extraTextures?: Record<string, string>
+    ) => {
       const draft = this.createDraftDefinition(playerId);
+      const defaultTex = this.createTexture(playerId, "défaut", 16);
+      this.updateTexturePixels(defaultTex.id, new Array(16 * 16).fill(color));
+      const textureLibrary: Record<string, TextureId> = { défaut: defaultTex.id };
+      if (extraTextures) {
+        for (const [libName, extraColor] of Object.entries(extraTextures)) {
+          const tex = this.createTexture(playerId, libName, 16);
+          this.updateTexturePixels(tex.id, new Array(16 * 16).fill(extraColor));
+          textureLibrary[libName] = tex.id;
+        }
+      }
       this.updateDefinition(draft.id, {
         name,
         script,
-        textures,
+        textureLibrary,
+        textures: allFaces("défaut"),
         collidable: name !== "Ticket",
         dimensions: { width: 1, height: 1, depth: 1, ...dims },
       });
@@ -159,7 +174,7 @@ export class GameEngine {
     publishAt(
       "Ticket",
       'def on_interact(player):\n    player.say("C\'est un ticket !")\n',
-      allFaces(solid("Ticket", "#facc15")),
+      "#facc15",
       -3, 1,
       { width: 0.4, height: 0.05, depth: 0.6 }
     );
@@ -167,24 +182,32 @@ export class GameEngine {
     publishAt(
       "Cube Bonjour",
       'def on_interact(player):\n    player.say("Hello !")\n',
-      allFaces(solid("Cube Bonjour", "#60a5fa")),
+      "#60a5fa",
       -2, -1
     );
 
+    // Demonstrates object.set_texture()/get_texture(): flashes to "actif" on a
+    // successful payment, then on_tick reverts it on the next tick.
     publishAt(
       "Machine à soda",
       [
         "def on_interact(player):",
         "    transaction = player.request_money(100)",
         "    if transaction.accepted:",
+        '        object.set_texture("actif")',
         '        player.say("Merci !")',
         "    else:",
         '        player.say("Reviens avec plus de coins !")',
         "",
+        "def on_tick():",
+        '    if object.get_texture() == "actif":',
+        '        object.set_texture("défaut")',
+        "",
       ].join("\n"),
-      allFaces(solid("Machine à soda", "#ef4444")),
+      "#ef4444",
       0, -2,
-      { width: 0.8, height: 1.4, depth: 0.8 }
+      { width: 0.8, height: 1.4, depth: 0.8 },
+      { actif: "#7f1d1d" }
     );
 
     publishAt(
@@ -199,9 +222,30 @@ export class GameEngine {
         '        player.say("Le ticket coûte 50 coins.")',
         "",
       ].join("\n"),
-      allFaces(solid("Distributeur", "#22c55e")),
+      "#22c55e",
       2, -1,
       { width: 0.8, height: 1.4, depth: 0.8 }
+    );
+
+    // Demonstrates object.get_balance()/send_money(): the object escrows what it
+    // collects and pays itself out once its own wallet reaches 100 coins.
+    publishAt(
+      "Cagnotte",
+      [
+        "def on_interact(player):",
+        "    transaction = player.request_money(20)",
+        "    if transaction.accepted:",
+        "        solde = object.get_balance()",
+        '        player.say("Cagnotte : " + str(solde) + " coins")',
+        "        if solde >= 100:",
+        "            object.send_money(player.get_id(), solde)",
+        '            player.say("Cagnotte pleine, je la reverse !")',
+        "    else:",
+        '        player.say("La cagnotte demande 20 coins.")',
+        "",
+      ].join("\n"),
+      "#a855f7",
+      0, 1
     );
   }
 
@@ -315,13 +359,85 @@ export class GameEngine {
 
   deleteTexture(textureId: TextureId): { ok: boolean; reason?: string } {
     for (const def of this.defs.values()) {
-      if (Object.values(def.textures).includes(textureId)) {
+      if (Object.values(def.textureLibrary).includes(textureId)) {
         return { ok: false, reason: `Utilisée par l'objet "${def.name}"` };
       }
     }
     this.textures.delete(textureId);
     this.notify();
     return { ok: true };
+  }
+
+  // ---------------------------------------------------------------------
+  // Texture library manager — the named textures a script can switch to
+  // via object.set_texture(nom)/get_texture(nom) (spec §7.3, §9.2).
+  // ---------------------------------------------------------------------
+
+  addLibraryTexture(defId: ObjectDefId, name: string, size = 16): { ok: boolean; reason?: string; texture?: Texture } {
+    const def = this.defs.get(defId);
+    if (!def) return { ok: false, reason: "Objet introuvable" };
+    const trimmed = name.trim();
+    if (!trimmed) return { ok: false, reason: "Le nom ne peut pas être vide" };
+    if (trimmed in def.textureLibrary) return { ok: false, reason: `Une texture nommée "${trimmed}" existe déjà` };
+    const tex = this.createTexture(def.creatorId, trimmed, size);
+    def.textureLibrary = { ...def.textureLibrary, [trimmed]: tex.id };
+    def.updatedAt = Date.now();
+    this.notify();
+    return { ok: true, texture: tex };
+  }
+
+  renameLibraryTexture(defId: ObjectDefId, oldName: string, newName: string): { ok: boolean; reason?: string } {
+    const def = this.defs.get(defId);
+    if (!def) return { ok: false, reason: "Objet introuvable" };
+    const trimmed = newName.trim();
+    if (!trimmed) return { ok: false, reason: "Le nom ne peut pas être vide" };
+    if (trimmed === oldName) return { ok: true };
+    if (trimmed in def.textureLibrary) return { ok: false, reason: `Une texture nommée "${trimmed}" existe déjà` };
+    const texId = def.textureLibrary[oldName];
+    if (!texId) return { ok: false, reason: "Texture introuvable" };
+    const nextLibrary = { ...def.textureLibrary };
+    delete nextLibrary[oldName];
+    nextLibrary[trimmed] = texId;
+    const nextFaces = { ...def.textures };
+    for (const face of Object.keys(nextFaces) as FaceName[]) {
+      if (nextFaces[face] === oldName) nextFaces[face] = trimmed;
+    }
+    def.textureLibrary = nextLibrary;
+    def.textures = nextFaces;
+    def.updatedAt = Date.now();
+    this.notify();
+    return { ok: true };
+  }
+
+  deleteLibraryTexture(defId: ObjectDefId, name: string): { ok: boolean; reason?: string } {
+    const def = this.defs.get(defId);
+    if (!def) return { ok: false, reason: "Objet introuvable" };
+    if (Object.values(def.textures).includes(name)) {
+      return { ok: false, reason: "Cette texture est utilisée par une face — réassignez la face avant de la supprimer" };
+    }
+    const nextLibrary = { ...def.textureLibrary };
+    delete nextLibrary[name];
+    def.textureLibrary = nextLibrary;
+    def.updatedAt = Date.now();
+    this.notify();
+    return { ok: true };
+  }
+
+  assignFaceTexture(defId: ObjectDefId, face: FaceName, name: string): { ok: boolean; reason?: string } {
+    const def = this.defs.get(defId);
+    if (!def) return { ok: false, reason: "Objet introuvable" };
+    if (!(name in def.textureLibrary)) return { ok: false, reason: "Texture introuvable dans la bibliothèque" };
+    def.textures = { ...def.textures, [face]: name };
+    def.updatedAt = Date.now();
+    this.notify();
+    return { ok: true };
+  }
+
+  /** Resolves a texture library entry (by name) to its actual pixel data. */
+  resolveLibraryTexture(def: ObjectDefinition, name: string | undefined): Texture | undefined {
+    if (!name) return undefined;
+    const texId = def.textureLibrary[name];
+    return texId ? this.textures.get(texId) : undefined;
   }
 
   // ---------------------------------------------------------------------
@@ -338,6 +454,7 @@ export class GameEngine {
       createdAt: now,
       updatedAt: now,
       dimensions: { width: 1, height: 1, depth: 1 },
+      textureLibrary: {},
       textures: {},
       collidable: true,
       properties: {},
@@ -406,6 +523,7 @@ export class GameEngine {
       ownerId,
       location,
       state: {},
+      wallet: 0,
       createdAt: Date.now(),
     };
     this.instances.set(inst.id, inst);
@@ -479,12 +597,25 @@ export class GameEngine {
       },
       setTexture: (a, b) => {
         const face = b ? a : "__all__";
-        const textureId = b ?? a;
-        if (!this.textures.has(textureId)) {
-          throw new ScriptRuntimeError(`Texture inconnue: '${textureId}'`);
+        const name = b ?? a;
+        if (!(name in def.textureLibrary)) {
+          throw new ScriptRuntimeError(
+            `Texture inconnue: '${name}'. Créez-la dans l'onglet Textures ou consultez object.get_texture().`
+          );
         }
-        instance.state[`textureOverride_${face}`] = textureId;
+        instance.state[`textureOverride_${face}`] = name;
         this.notify();
+      },
+      getTexture: (face) => {
+        if (face) {
+          return (
+            (instance.state[`textureOverride_${face}`] as string | undefined) ??
+            (instance.state["textureOverride___all__"] as string | undefined) ??
+            def.textures[face as FaceName] ??
+            null
+          );
+        }
+        return (instance.state["textureOverride___all__"] as string | undefined) ?? null;
       },
       playAnimation: (name) => {
         instance.state["_animation"] = name;
@@ -505,6 +636,12 @@ export class GameEngine {
         if (!playerId) throw new ScriptRuntimeError("Aucun joueur présent");
         return this.players.get(playerId)?.name ?? "?";
       },
+      getPlayerId: () => {
+        if (!playerId) throw new ScriptRuntimeError("Aucun joueur présent");
+        return playerId;
+      },
+      getBalance: () => instance.wallet ?? 0,
+      sendMoney: (targetPlayerId, amount) => this.sendMoneyFromInstance(instance, targetPlayerId, amount),
     };
   }
 
@@ -596,6 +733,7 @@ export class GameEngine {
       ownerId: playerId,
       location: { kind: "inventory" },
       state: {},
+      wallet: 0,
       createdAt: Date.now(),
     };
     this.pushLog("info", `— Test de "${def.name}" (${eventName}) —`);
@@ -658,9 +796,26 @@ export class GameEngine {
     }
 
     player.money -= tx.amount;
+    // The paying object escrows what it collects — object.get_balance()/send_money()
+    // let its script redistribute it later (e.g. pay it back out to a player).
+    const sourceInstance = tx.sourceInstanceId ? this.instances.get(tx.sourceInstanceId) : undefined;
+    if (sourceInstance) sourceInstance.wallet = (sourceInstance.wallet ?? 0) + tx.amount;
     this.pushLog("result", `-${tx.amount} coins (${tx.sourceDefName})`);
     resolve({ accepted: true });
     this.notify();
+  }
+
+  /** Atomic: an object can only pay out coins it has actually collected (spec §13's guarantee, extended to object wallets). */
+  private sendMoneyFromInstance(instance: ObjectInstance, targetPlayerId: PlayerId, amount: number): { ok: boolean; reason?: string } {
+    if (!Number.isFinite(amount) || amount <= 0) return { ok: false, reason: "montant invalide" };
+    if ((instance.wallet ?? 0) < amount) return { ok: false, reason: "solde de l'objet insuffisant" };
+    const target = this.players.get(targetPlayerId);
+    if (!target) return { ok: false, reason: `joueur '${targetPlayerId}' introuvable` };
+    instance.wallet -= amount;
+    target.money += amount;
+    this.pushLog("result", `💰 ${instance.id} envoie ${amount} coins à ${target.name}`);
+    this.notify();
+    return { ok: true };
   }
 
   // ---------------------------------------------------------------------

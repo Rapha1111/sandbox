@@ -37,7 +37,15 @@ export interface ObjectDefinition {
   createdAt: number;
   updatedAt: number;
   dimensions: Dimensions;
-  textures: Partial<Record<FaceName, TextureId>>;
+  /**
+   * The object's palette: every texture a creator has drawn for it, keyed by a name the
+   * creator picks (e.g. "front", "ouvert", "clignote_1"). Faces below and scripts
+   * (object.set_texture/get_texture) both refer to entries here by that name, never by
+   * raw texture id — so a script can swap an object's look at runtime by name.
+   */
+  textureLibrary: Record<string, TextureId>;
+  /** Which library entry each face shows by default. */
+  textures: Partial<Record<FaceName, string>>;
   collidable: boolean;
   /** Arbitrary designer-defined properties, readable from scripts via object.get_property(). */
   properties: Record<string, string | number | boolean>;
@@ -57,6 +65,9 @@ export interface ObjectInstance {
     | { kind: "house"; houseId: HouseId; x: number; y: number; z: number; rotationY: number };
   /** Free-form per-instance state a script can read/write via object.get_state/set_state. */
   state: Record<string, string | number | boolean>;
+  /** Coins this instance has collected via accepted player.request_money() calls (spec-extension: an
+   * object escrows the money it's paid; object.get_balance()/send_money() let a script redistribute it). */
+  wallet: number;
   createdAt: number;
 }
 

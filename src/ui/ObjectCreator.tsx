@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { python } from "@codemirror/lang-python";
-import { FACE_NAMES, type FaceName, type ObjectDefinition } from "../engine/types";
-import { engine, useGameStore, closeEditor } from "../data/store";
+import { FACE_NAMES, type FaceName, type ObjectDefinition, type Texture } from "../engine/types";
+import { engine, useGameStore, closeEditor, toggleApiHelp } from "../data/store";
 import { PixelArtEditor } from "./PixelArtEditor";
 import { DebugConsole } from "./DebugConsole";
 import "./ObjectCreator.css";
@@ -26,6 +26,9 @@ export function ObjectCreator() {
   const editingDefId = useGameStore((s) => s.editingDefId);
   const [tab, setTab] = useState<Tab>("info");
   const [face, setFace] = useState<FaceName>("front");
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [newTexName, setNewTexName] = useState("");
+  const [libError, setLibError] = useState<string | null>(null);
   const [testEvent, setTestEvent] = useState("on_interact");
   const [publishMsg, setPublishMsg] = useState<string | null>(null);
 
@@ -37,10 +40,10 @@ export function ObjectCreator() {
   // Hooks must run unconditionally, so this stays above the `!def` early return below.
   useEffect(() => {
     if (!def) return;
-    const texId = def.textures[face];
-    if (!texId || !engine.getTexture(texId)) {
-      const tex = engine.createTexture(currentPlayerId, `${def.name} - ${FACE_LABEL[face]}`, 16);
-      engine.updateDefinition(def.id, { textures: { ...def.textures, [face]: tex.id } });
+    const name = def.textures[face];
+    if (!name || !(name in def.textureLibrary)) {
+      if (!(face in def.textureLibrary)) engine.addLibraryTexture(def.id, face, 16);
+      engine.assignFaceTexture(def.id, face, face);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [face, editingDefId]);
@@ -49,14 +52,46 @@ export function ObjectCreator() {
   const defId = def.id;
 
   const validation = engine.validateScript(def.script);
+  const activeTextureName = editingName ?? def.textures[face] ?? null;
+  const activeTexture: Texture | undefined = engine.resolveLibraryTexture(def, activeTextureName ?? undefined);
 
   function patch(p: Partial<Omit<ObjectDefinition, "id" | "creatorId" | "createdAt">>) {
     engine.updateDefinition(defId, p);
   }
 
-  function textureFor(f: FaceName) {
-    const texId = def!.textures[f];
-    return texId ? engine.getTexture(texId) : undefined;
+  function selectFace(f: FaceName) {
+    setFace(f);
+    setEditingName(null);
+  }
+
+  function handleCreateTexture() {
+    const result = engine.addLibraryTexture(defId, newTexName, 16);
+    if (result.ok) {
+      setEditingName(newTexName.trim());
+      setNewTexName("");
+      setLibError(null);
+    } else {
+      setLibError(result.reason ?? "Erreur");
+    }
+  }
+
+  function handleDeleteTexture(name: string) {
+    const result = engine.deleteLibraryTexture(defId, name);
+    if (!result.ok) setLibError(result.reason ?? "Erreur");
+    else {
+      setLibError(null);
+      if (editingName === name) setEditingName(null);
+    }
+  }
+
+  function handleRenameTexture(oldName: string, newName: string) {
+    if (newName.trim() === oldName) return;
+    const result = engine.renameLibraryTexture(defId, oldName, newName);
+    if (!result.ok) setLibError(result.reason ?? "Erreur");
+    else {
+      setLibError(null);
+      if (editingName === oldName) setEditingName(newName.trim());
+    }
   }
 
   async function handleTest() {
@@ -97,28 +132,67 @@ export function ObjectCreator() {
 
           {tab === "textures" && (
             <div className="object-creator__textures">
-              <div className="object-creator__faces">
-                {FACE_NAMES.map((f) => (
-                  <button
-                    key={f}
-                    className={f === face ? "object-creator__face object-creator__face--active" : "object-creator__face"}
-                    onClick={() => setFace(f)}
-                  >
-                    <FaceThumb texture={textureFor(f)} />
-                    {FACE_LABEL[f]}
-                  </button>
-                ))}
+              <div className="object-creator__textures-main">
+                <div className="object-creator__faces">
+                  {FACE_NAMES.map((f) => (
+                    <button
+                      key={f}
+                      className={f === face && !editingName ? "object-creator__face object-creator__face--active" : "object-creator__face"}
+                      onClick={() => selectFace(f)}
+                    >
+                      <FaceThumb texture={engine.resolveLibraryTexture(def, def.textures[f])} />
+                      {FACE_LABEL[f]}
+                    </button>
+                  ))}
+                </div>
+                <div className="object-creator__pixel-editor">
+                  <p className="object-creator__editing-label">
+                    Édition : <strong>{activeTextureName ?? "…"}</strong>
+                  </p>
+                  {activeTexture ? (
+                    <PixelArtEditor
+                      texture={activeTexture}
+                      onChange={(pixels) => engine.updateTexturePixels(activeTexture.id, pixels)}
+                      onResize={(size) => engine.resizeTexture(activeTexture.id, size)}
+                    />
+                  ) : (
+                    <p className="object-creator__hint">Préparation de la texture…</p>
+                  )}
+                </div>
               </div>
-              <div className="object-creator__pixel-editor">
-                {textureFor(face) ? (
-                  <PixelArtEditor
-                    texture={textureFor(face)!}
-                    onChange={(pixels) => engine.updateTexturePixels(textureFor(face)!.id, pixels)}
-                    onResize={(size) => engine.resizeTexture(textureFor(face)!.id, size)}
+
+              <div className="object-creator__library">
+                <div className="object-creator__props-header">
+                  <span>Bibliothèque de textures (utilisables par script)</span>
+                </div>
+                <p className="object-creator__hint">
+                  Créez autant de textures que nécessaire pour cet objet, puis changez l'apparence depuis un script
+                  avec <code>object.set_texture("nom")</code>.
+                </p>
+                {libError && <div className="object-creator__error">{libError}</div>}
+                <div className="object-creator__library-list">
+                  {Object.entries(def.textureLibrary).map(([name, texId]) => (
+                    <LibraryEntry
+                      key={name}
+                      name={name}
+                      texture={engine.getTexture(texId)}
+                      active={activeTextureName === name}
+                      usedByFace={(Object.entries(def.textures) as [FaceName, string][]).some(([, n]) => n === name)}
+                      onEdit={() => setEditingName(name)}
+                      onRename={(newName) => handleRenameTexture(name, newName)}
+                      onDelete={() => handleDeleteTexture(name)}
+                    />
+                  ))}
+                </div>
+                <div className="object-creator__library-add">
+                  <input
+                    placeholder="Nom de la nouvelle texture (ex: ouvert)"
+                    value={newTexName}
+                    onChange={(e) => setNewTexName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleCreateTexture()}
                   />
-                ) : (
-                  <p className="object-creator__hint">Préparation de la texture…</p>
-                )}
+                  <button onClick={handleCreateTexture} disabled={!newTexName.trim()}>+ Créer</button>
+                </div>
               </div>
             </div>
           )}
@@ -140,6 +214,9 @@ export function ObjectCreator() {
                   ))}
                 </select>
                 <button onClick={handleTest} disabled={!validation.ok}>▶ Tester</button>
+                <button className="object-creator__help-button" onClick={toggleApiHelp} title="Commandes disponibles">
+                  ? Commandes
+                </button>
               </div>
               <DebugConsole compact />
             </div>
@@ -246,5 +323,43 @@ function FaceThumb({ texture }: { texture: ReturnType<typeof engine.getTexture> 
         c ? <rect key={i} x={i % texture.size} y={Math.floor(i / texture.size)} width={1} height={1} fill={c} /> : null
       )}
     </svg>
+  );
+}
+
+function LibraryEntry({
+  name,
+  texture,
+  active,
+  usedByFace,
+  onEdit,
+  onRename,
+  onDelete,
+}: {
+  name: string;
+  texture: ReturnType<typeof engine.getTexture>;
+  active: boolean;
+  usedByFace: boolean;
+  onEdit: () => void;
+  onRename: (newName: string) => void;
+  onDelete: () => void;
+}) {
+  const [draft, setDraft] = useState(name);
+  return (
+    <div className={active ? "object-creator__library-item object-creator__library-item--active" : "object-creator__library-item"}>
+      <button className="object-creator__library-thumb" onClick={onEdit} title="Éditer cette texture">
+        <FaceThumb texture={texture} />
+      </button>
+      <input
+        className="object-creator__library-name"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => onRename(draft)}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      />
+      {usedByFace && <span className="object-creator__library-badge" title="Utilisée par défaut sur une face">face</span>}
+      <button onClick={onDelete} disabled={usedByFace} title={usedByFace ? "Réassignez la face avant de supprimer" : "Supprimer"}>
+        ✕
+      </button>
+    </div>
   );
 }

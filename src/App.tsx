@@ -5,6 +5,7 @@ import { HUD } from "./ui/HUD";
 import { Inventory } from "./ui/Inventory";
 import { TransactionModal } from "./ui/TransactionModal";
 import { ObjectCreator } from "./ui/ObjectCreator";
+import { ApiReferenceModal } from "./ui/ApiReferenceModal";
 import "./App.css";
 
 function App() {
@@ -29,6 +30,7 @@ function App() {
       <HUD />
       <Inventory />
       <TransactionModal />
+      <ApiReferenceModal />
       {view === "editor" && editingDefId && <ObjectCreator />}
     </div>
   );

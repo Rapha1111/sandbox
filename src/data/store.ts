@@ -25,6 +25,13 @@ interface UiState {
   /** Multiplayer relay connection (server/index.ts) — see src/net/multiplayer.ts. */
   mpConnected: boolean;
   onlinePlayerIds: string[];
+  /**
+   * A script called object.teleport_to() and asked to walk the given player to a spot
+   * (house-local coordinates — the target house isn't necessarily the one they're in right
+   * now). World.tsx consumes this into its walkTargetRef (world coordinates, via the house
+   * layout) and clears it — see GameEngine.setOnRequestWalk.
+   */
+  pendingWalkRequest: { forPlayerId: string; houseId: string; x: number; z: number } | null;
 }
 
 const localPlayer = engine.getPlayer(localIdentity.id)!;
@@ -42,6 +49,7 @@ export const useGameStore = create<UiState>()(() => ({
   viewingInstanceInventoryId: null,
   mpConnected: false,
   onlinePlayerIds: [],
+  pendingWalkRequest: null,
 }));
 
 engine.subscribe(() => {
@@ -51,6 +59,14 @@ engine.subscribe(() => {
 multiplayer.subscribe((state) => {
   useGameStore.setState({ mpConnected: state.connected, onlinePlayerIds: [...state.onlinePlayerIds] });
 });
+
+engine.setOnRequestWalk((playerId, houseId, x, z) => {
+  useGameStore.setState({ pendingWalkRequest: { forPlayerId: playerId, houseId, x, z } });
+});
+
+export function clearWalkRequest(): void {
+  useGameStore.setState({ pendingWalkRequest: null });
+}
 
 export function openEditor(defId: string): void {
   useGameStore.setState({ editingDefId: defId, view: "editor" });

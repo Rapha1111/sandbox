@@ -37,15 +37,24 @@ build`) — voir « Multijoueur » pour les limites de ce relais.
   clavier (WASD/flèches), collisions avec les objets marqués `collidable`,
   sauvegarde/chargement automatique.
 - **Objets (P1)** — `Object Creator` (bouton « ✨ Créer un objet ») : nom,
-  dimensions (largeur/hauteur/profondeur), propriétés personnalisées,
-  placement depuis l'inventaire par clic au sol. Un objet est soit un
-  **bloc normal** (bloque le passage, peut stocker de l'argent/des objets),
-  soit un **objet simple** — case « Objet simple » cochée dans l'onglet
-  Info : transperçable comme un ticket, et `player.request_money()`/
+  dimensions (largeur/hauteur/profondeur — largeur et profondeur plafonnées
+  à 10, la hauteur non), propriétés personnalisées, placement depuis
+  l'inventaire par clic au sol. Un objet est soit un **bloc normal**
+  (bloque le passage, peut stocker de l'argent/des objets), soit un
+  **objet simple** — case « Objet simple » cochée dans l'onglet Info :
+  transperçable comme un ticket, et `player.request_money()`/
   `player.request_object()` (ou un dépôt manuel via le panneau Inventaire)
   y échouent immédiatement puisqu'il ne peut rien stocker. Clic droit sur
-  un objet placé que vous possédez → menu contextuel **[Inventaire —
-  uniquement pour un bloc] / Déplacer / Récupérer** (voir plus bas).
+  un objet placé que vous possédez → menu contextuel **⚙️ Paramètres
+  (fire `on_settings`) / [Inventaire — uniquement pour un bloc] / Déplacer
+  / Récupérer** (voir plus bas).
+- **Déplacement & placement** — cliquer sur un objet (le vôtre ou celui
+  d'un autre joueur) fait marcher votre personnage jusque devant lui à
+  vitesse normale avant de déclencher `on_interact` — jamais de
+  téléportation instantanée. En mode placement/déplacement, l'objet
+  s'affiche en transparence sous la souris et suit le curseur ; s'il
+  chevaucherait un mur ou un autre bloc à cet endroit, il se teinte
+  légèrement en rouge et le clic ne le pose pas.
 - **Textures pixel art (P2)** — chaque objet a sa propre **bibliothèque de
   textures nommées** (onglet Textures : grille de faces + section
   "Bibliothèque" pour créer/renommer/supprimer des textures additionnelles,
@@ -69,7 +78,20 @@ build`) — voir « Multijoueur » pour les limites de ce relais.
   debug, sans jamais faire planter le jeu (erreurs capturées). Fonctions
   utilitaires intégrées : `time()`, `randint(a, b)`, `random()`,
   `choice(liste)`, `floor(n)`, `ceil(n)`, en plus de `range`/`len`/`str`/
-  `int`/`abs`/`min`/`max`/`round`/`log`.
+  `int`/`abs`/`min`/`max`/`round`/`log`. Évènements disponibles :
+  `on_create`, `on_interact(player)`, `on_tick()`, `on_destroy()`,
+  `on_player_enter(player)`, `on_settings(player)` (déclenché par le
+  bouton **⚙️ Paramètres** du menu contextuel — l'endroit pour une
+  configuration propre à un exemplaire) et `on_walk_on(player)`
+  (déclenché quand un joueur marche sur un objet simple — un bloc normal
+  bloquant le passage, il ne peut jamais recevoir cet évènement). Le
+  bouton **?** listant toutes les commandes vit désormais uniquement dans
+  l'onglet Script (plus dans la barre du haut).
+- **`object.teleport_to(player)`** — déplace le joueur (à vitesse normale,
+  en marchant, jamais instantanément) jusqu'à l'emplacement de cet objet ;
+  n'aboutit que si l'objet appelant est un objet simple (sans collision) —
+  on ne peut pas téléporter quelqu'un sur un bloc qui bloquerait aussitôt
+  son passage.
 - **Boîtes de dialogue** — un script peut demander une saisie au joueur :
   `player.ask_text(question)` (champ de texte), `player.ask_choice(question,
   [options])` (sélecteur), `player.ask_yes_no(question)` (Oui/Non, retourne
@@ -289,6 +311,25 @@ objets de test plutôt que de s'appuyer sur des objets pré-publiés.
     visiblement de 2×2, et le bouton se désactive dès que le solde du
     joueur devient insuffisant pour le prochain palier (jamais de solde
     négatif).
+12. Marcher avant d'interagir : objet placé loin du joueur avec
+    `on_interact` qui dit "Salut !" → clic dessus → le personnage marche
+    (capture d'écran à mi-chemin) puis la bulle n'apparaît qu'environ
+    700ms plus tard, jamais instantanément.
+13. `object.teleport_to()` : sur un bloc normal (collision cochée), un
+    script l'appelant échoue immédiatement avec « ne fonctionne que sur un
+    objet simple » (visible dans la console de debug via **Tester**) ; sur
+    un objet simple placé, aucune erreur.
+14. `on_settings`/`on_walk_on` : clic droit sur un objet simple placé →
+    **⚙️ Paramètres** → la bulle "Config !" de son `on_settings` apparaît ;
+    marcher dessus au clavier (sans jamais cliquer) déclenche également sa
+    bulle "Marche !" via `on_walk_on`.
+15. Plafond de dimensions : entrer 15 dans le champ largeur de l'Object
+    Creator → ramené à 10 automatiquement.
+16. Aperçu de placement : en mode placement, l'objet suit la souris en
+    transparence ; le faire chevaucher un bloc déjà posé le teinte
+    visiblement en rouge et le clic à cet endroit ne pose rien (le mode
+    placement reste actif) ; un peu plus loin, où il ne chevauche plus
+    rien, le clic pose bien l'objet.
 
 ## Volontairement non traité dans ce prototype (voir spec §35)
 

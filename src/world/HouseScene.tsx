@@ -5,11 +5,15 @@ import type { House } from "../engine/types";
 export function HouseScene({
   house,
   onFloorClick,
+  onFloorPointerMove,
+  onFloorPointerLeave,
   label,
   isOwn,
 }: {
   house: House;
   onFloorClick?: (e: ThreeEvent<MouseEvent>) => void;
+  onFloorPointerMove?: (e: ThreeEvent<PointerEvent>) => void;
+  onFloorPointerLeave?: () => void;
   /** Name shown above the house — "Chez <name>" for a visitable house, nothing for your own. */
   label?: string;
   isOwn?: boolean;
@@ -20,7 +24,14 @@ export function HouseScene({
 
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow onClick={onFloorClick}>
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, 0, 0]}
+        receiveShadow
+        onClick={onFloorClick}
+        onPointerMove={onFloorPointerMove}
+        onPointerLeave={onFloorPointerLeave}
+      >
         <planeGeometry args={[width, depth]} />
         <meshLambertMaterial color={isOwn ? "#e7d9c0" : "#dcd3c4"} />
       </mesh>

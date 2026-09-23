@@ -38,6 +38,8 @@ export const STARTING_MONEY = 500;
 const DEFAULT_HOUSE_SIZE = 10;
 export const HOUSE_EXPAND_STEP = 2;
 export const HOUSE_MAX_SIZE = 20;
+/** An object's own width/depth (not height) never exceeds this — keeps a single object from dwarfing a whole house. */
+export const MAX_OBJECT_FOOTPRINT = 10;
 export const houseExpandCost = (expansions: number): number => 100 + expansions * 60;
 
 export interface SpeechBubble {
@@ -83,10 +85,16 @@ export class GameEngine {
   private dirty = new Map<string, EntityRef>();
   private localPlayerId: PlayerId;
   private onLocalSpeech?: (targetInstanceId: string, text: string) => void;
+  private onRequestWalk?: (playerId: PlayerId, houseId: HouseId, x: number, z: number) => void;
 
   /** Wired by src/net/multiplayer.ts to relay this client's own say() calls to everyone else. */
   setOnLocalSpeech(fn: (targetInstanceId: string, text: string) => void): void {
     this.onLocalSpeech = fn;
+  }
+
+  /** Wired by the World UI: object.teleport_to() only knows *where*, not how to actually walk the avatar there. */
+  setOnRequestWalk(fn: (playerId: PlayerId, houseId: HouseId, x: number, z: number) => void): void {
+    this.onRequestWalk = fn;
   }
 
   constructor(saveManager: SaveManager, localPlayerId: PlayerId, localPlayerName = "Joueur") {
@@ -573,6 +581,16 @@ export class GameEngine {
   updateDefinition(defId: ObjectDefId, patch: Partial<Omit<ObjectDefinition, "id" | "creatorId" | "createdAt">>): void {
     const def = this.defs.get(defId);
     if (!def) return;
+    if (patch.dimensions) {
+      patch = {
+        ...patch,
+        dimensions: {
+          ...patch.dimensions,
+          width: Math.min(MAX_OBJECT_FOOTPRINT, patch.dimensions.width),
+          depth: Math.min(MAX_OBJECT_FOOTPRINT, patch.dimensions.depth),
+        },
+      };
+    }
     Object.assign(def, patch, { updatedAt: Date.now() });
     if (def.published) this.markDirty("def", def.id);
     this.notify();
@@ -818,6 +836,16 @@ export class GameEngine {
         return this.requestObjectTransaction(playerId, defIdOrName, instance.id, def.name);
       },
       spawn: (defIdOrName) => Promise.resolve(this.spawnSensitive(instance, defIdOrName)),
+      teleportTo: () => {
+        if (!playerId) return { ok: false, reason: "Aucun joueur présent" };
+        if (def.collidable) {
+          return { ok: false, reason: "teleport_to ne fonctionne que sur un objet simple (sans collision)" };
+        }
+        if (instance.location.kind !== "house") return { ok: false, reason: "cet objet n'est pas placé" };
+        const { houseId, x, z } = instance.location;
+        this.onRequestWalk?.(playerId, houseId, x, z);
+        return { ok: true };
+      },
       say: (text) => {
         if (playerId) {
           // Replace, don't stack: two say() calls close together (e.g. a cooldown message
@@ -968,6 +996,26 @@ export class GameEngine {
     await this.runEventForInstance(instance, def, "on_interact", [playerArg]);
   }
 
+  /** The owner opens "⚙️ Paramètres" from the block's context menu: fires on_settings, a spot for the creator's own script to run custom configuration (ask_* dialogs, set_state, ...). */
+  async runSettingsEvent(instanceId: ObjectInstanceId, playerId: PlayerId): Promise<void> {
+    const instance = this.instances.get(instanceId);
+    if (!instance) return;
+    const def = this.defs.get(instance.defId);
+    if (!def) return;
+    const playerArg = this.makePlayerArg(playerId, instance, def);
+    await this.runEventForInstance(instance, def, "on_settings", [playerArg]);
+  }
+
+  /** A player's avatar has just walked onto this ("objet simple", non-collidable) instance's footprint: fires on_walk_on. */
+  async runWalkOnEvent(instanceId: ObjectInstanceId, playerId: PlayerId): Promise<void> {
+    const instance = this.instances.get(instanceId);
+    if (!instance) return;
+    const def = this.defs.get(instance.defId);
+    if (!def) return;
+    const playerArg = this.makePlayerArg(playerId, instance, def);
+    await this.runEventForInstance(instance, def, "on_walk_on", [playerArg]);
+  }
+
   async enterHouse(playerId: PlayerId, houseId: HouseId): Promise<void> {
     for (const instance of this.listInstancesInHouse(houseId)) {
       const def = this.defs.get(instance.defId);
@@ -999,7 +1047,8 @@ export class GameEngine {
     };
     this.pushLog("info", `— Test de "${def.name}" (${eventName}) —`);
     this.notify();
-    const args = eventName === "on_interact" || eventName === "on_player_enter" ? [this.makePlayerArg(playerId, fake, def)] : [];
+    const eventsWithPlayerArg = new Set(["on_interact", "on_player_enter", "on_settings", "on_walk_on"]);
+    const args = eventsWithPlayerArg.has(eventName) ? [this.makePlayerArg(playerId, fake, def)] : [];
     await this.runEventForInstance(fake, def, eventName, args);
   }
 

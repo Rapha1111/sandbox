@@ -24,6 +24,8 @@ export interface ScriptEngineHooks {
   requestObject(defIdOrName: string): Promise<TransactionOutcome>;
   giveItem(defIdOrName: string): Promise<SensitiveOutcome>;
   spawn(defIdOrName: string): Promise<SensitiveOutcome>;
+  /** Walks the interacting player (at normal speed, not instantly) to this instance's own location. Only works when this instance is a non-collidable "objet simple". */
+  teleportTo(): SensitiveOutcome;
   say(text: string): void;
   /** `name` is a key into the object's own texture library (see object.get_texture()), not a raw texture id. */
   setTexture(nameOrFace: string, maybeName?: string): void;
@@ -158,6 +160,12 @@ export function buildObjectHost(hooks: ScriptEngineHooks): HostObject {
       const defId = requireString(args[0], "object.spawn()", line);
       const result = await hooks.spawn(defId);
       if (!result.ok) throw new ScriptRuntimeError(`object.spawn() a échoué: ${result.reason ?? "inconnu"}`, line);
+      return null;
+    },
+    teleport_to: (_i, args, line) => {
+      assertIsPlayerArg(args[0], "object.teleport_to()", line);
+      const result = hooks.teleportTo();
+      if (!result.ok) throw new ScriptRuntimeError(`object.teleport_to() a échoué: ${result.reason ?? "inconnu"}`, line);
       return null;
     },
     get_id: () => hooks.getInstanceId(),

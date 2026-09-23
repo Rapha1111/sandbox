@@ -16,7 +16,8 @@ const FACE_LABEL: Partial<Record<FaceName, string>> = {
   front: "Avant (copiée sur les côtés)",
 };
 
-const TESTABLE_EVENTS = ["on_interact", "on_create", "on_player_enter", "on_tick", "on_destroy"];
+const TESTABLE_EVENTS = ["on_interact", "on_create", "on_player_enter", "on_walk_on", "on_settings", "on_tick", "on_destroy"];
+const MAX_FOOTPRINT = 10;
 
 export function ObjectCreator() {
   useGameStore((s) => s.tick);
@@ -260,18 +261,27 @@ function InfoTab({ def, onPatch }: { def: ObjectDefinition; onPatch: (p: DefPatc
       <label>
         Dimensions (largeur × hauteur × profondeur)
         <div className="object-creator__dims">
-          {(["width", "height", "depth"] as const).map((dim) => (
-            <input
-              key={dim}
-              type="number"
-              min={0.1}
-              step={0.1}
-              value={def.dimensions[dim]}
-              onChange={(e) => onPatch({ dimensions: { ...def.dimensions, [dim]: Number(e.target.value) || 1 } })}
-            />
-          ))}
+          {(["width", "height", "depth"] as const).map((dim) => {
+            const capped = dim === "width" || dim === "depth";
+            return (
+              <input
+                key={dim}
+                type="number"
+                min={0.1}
+                max={capped ? MAX_FOOTPRINT : undefined}
+                step={0.1}
+                value={def.dimensions[dim]}
+                onChange={(e) => {
+                  let value = Number(e.target.value) || 1;
+                  if (capped) value = Math.min(MAX_FOOTPRINT, value);
+                  onPatch({ dimensions: { ...def.dimensions, [dim]: value } });
+                }}
+              />
+            );
+          })}
         </div>
       </label>
+      <p className="object-creator__hint">Largeur et profondeur limitées à {MAX_FOOTPRINT} (la hauteur n'est pas plafonnée).</p>
 
       <label className="object-creator__checkbox">
         <input

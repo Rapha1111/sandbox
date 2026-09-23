@@ -1,12 +1,21 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
-import { engine, useGameStore, cancelPlacing, openContextMenu } from "../data/store";
+import { engine, useGameStore, cancelPlacing, openContextMenu, clearWalkRequest } from "../data/store";
 import { computeHouseLayout } from "../engine/houseLayout";
 import { HouseScene } from "./HouseScene";
-import { PlayerMesh, RemotePlayerMesh, collidables, type CollidableBox, type HouseFootprint } from "./PlayerMesh";
+import {
+  PlayerMesh,
+  RemotePlayerMesh,
+  boxOverlapsAny,
+  type CollidableBox,
+  type HouseFootprint,
+  type WalkableFootprint,
+  type WalkTarget,
+} from "./PlayerMesh";
 import { CameraRig } from "./CameraRig";
 import { ObjectInstanceMesh } from "./ObjectInstanceMesh";
+import { PlacementGhost } from "./PlacementGhost";
 import "./World.css";
 
 const WALL_THICKNESS = 0.15;
@@ -23,6 +32,7 @@ export function World() {
   const houses = engine.listHouses();
   const layout = computeHouseLayout(houses);
   const posRef = useRef({ x: player?.position.x ?? 0, z: player?.position.z ?? 0 });
+  const walkTargetRef = useRef<WalkTarget | null>(null);
 
   // A big, instantaneous jump in the engine's stored position (never produced by our own
   // movement — that always flows the other way, posRef -> engine.movePlayer) means something
@@ -39,6 +49,26 @@ export function World() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player?.position.x, player?.position.z]);
 
+  // object.teleport_to() lands here as a store field (GameEngine has no React/Three.js
+  // reference of its own) — convert its house-local coordinates to world space and hand
+  // them to the same walk-at-normal-speed mechanism a click-to-interact uses.
+  const pendingWalkRequest = useGameStore((s) => s.pendingWalkRequest);
+  useEffect(() => {
+    if (!pendingWalkRequest || pendingWalkRequest.forPlayerId !== currentPlayerId) return;
+    const entry = computeHouseLayout(engine.listHouses()).find((e) => e.houseId === pendingWalkRequest.houseId);
+    if (entry) {
+      walkTargetRef.current = { x: entry.originX + pendingWalkRequest.x, z: pendingWalkRequest.z, onArrive: () => {} };
+    }
+    clearWalkRequest();
+  }, [pendingWalkRequest, currentPlayerId]);
+
+  // Live placement/move preview: house-local coords + whether it currently overlaps a wall or
+  // another block (see handleFloorPointerMove below). Reset whenever placement mode ends.
+  const [ghost, setGhost] = useState<{ x: number; z: number; blocked: boolean } | null>(null);
+  useEffect(() => {
+    if (!placingInstanceId) setGhost(null);
+  }, [placingInstanceId]);
+
   if (!player) return null;
 
   let minX = -WORLD_MARGIN;
@@ -46,6 +76,7 @@ export function World() {
   let maxDepth = 10;
   const boxes: CollidableBox[] = [];
   const footprints: HouseFootprint[] = [];
+  const walkables: WalkableFootprint[] = [];
 
   for (const entry of layout) {
     const house = houses.find((h) => h.id === entry.houseId)!;
@@ -61,8 +92,28 @@ export function World() {
       { x: entry.originX - house.width / 2, z: 0, halfW: WALL_THICKNESS / 2, halfD: house.depth / 2 },
       { x: entry.originX + house.width / 2, z: 0, halfW: WALL_THICKNESS / 2, halfD: house.depth / 2 }
     );
-    for (const b of collidables(engine.listInstancesInHouse(house.id))) {
-      boxes.push({ ...b, x: b.x + entry.originX });
+    for (const inst of engine.listInstancesInHouse(house.id)) {
+      if (inst.location.kind !== "house") continue;
+      const def = engine.getDefinition(inst.defId);
+      if (!def) continue;
+      if (def.collidable) {
+        boxes.push({
+          x: inst.location.x + entry.originX,
+          z: inst.location.z,
+          halfW: def.dimensions.width / 2,
+          halfD: def.dimensions.depth / 2,
+        });
+      } else {
+        // Non-collidable ("objet simple") instances aren't obstacles, but a player can walk
+        // onto them — that's exactly what on_walk_on detects, see PlayerMesh's onWalkOn.
+        walkables.push({
+          instanceId: inst.id,
+          x: inst.location.x + entry.originX,
+          z: inst.location.z,
+          halfW: def.dimensions.width / 2,
+          halfD: def.dimensions.depth / 2,
+        });
+      }
     }
   }
 
@@ -71,6 +122,15 @@ export function World() {
 
   function handleHouseChange(houseId: string | null): void {
     if (houseId) void engine.enterHouse(currentPlayerId, houseId);
+  }
+
+  function handleWalkOn(instanceId: string): void {
+    void engine.runWalkOnEvent(instanceId, currentPlayerId);
+  }
+
+  /** Left-click on an object: walk there at normal speed first (spec), then fire on_interact. */
+  function handleInteract(instanceId: string, worldX: number, worldZ: number): void {
+    walkTargetRef.current = { x: worldX, z: worldZ, onArrive: () => void engine.interact(instanceId, currentPlayerId) };
   }
 
   return (
@@ -86,15 +146,44 @@ export function World() {
           const owner = engine.getPlayer(house.ownerId);
           const instances = engine.listInstancesInHouse(house.id);
 
+          function placingGhostBox(localX: number, localZ: number): CollidableBox | null {
+            if (!placingInstanceId) return null;
+            const placingInst = engine.getInstance(placingInstanceId);
+            const def = placingInst ? engine.getDefinition(placingInst.defId) : undefined;
+            if (!def) return null;
+            return {
+              x: localX + entry.originX,
+              z: localZ,
+              halfW: def.dimensions.width / 2,
+              halfD: def.dimensions.depth / 2,
+            };
+          }
+
+          function clampToFloor(pointX: number, pointZ: number): { x: number; z: number } {
+            const halfW = house.width / 2 - 0.5;
+            const halfD = house.depth / 2 - 0.5;
+            return {
+              x: THREE.MathUtils.clamp(pointX - entry.originX, -halfW, halfW),
+              z: THREE.MathUtils.clamp(pointZ, -halfD, halfD),
+            };
+          }
+
           function handleFloorClick(e: ThreeEvent<MouseEvent>) {
             if (!placingInstanceId || !isOwn) return;
             e.stopPropagation();
-            const halfW = house.width / 2 - 0.5;
-            const halfD = house.depth / 2 - 0.5;
-            const x = THREE.MathUtils.clamp(e.point.x - entry.originX, -halfW, halfW);
-            const z = THREE.MathUtils.clamp(e.point.z, -halfD, halfD);
+            const { x, z } = clampToFloor(e.point.x, e.point.z);
+            const box = placingGhostBox(x, z);
+            if (box && boxOverlapsAny(box, boxes)) return; // would hit a wall/another block — refuse silently
             const result = engine.placeFromInventory(placingInstanceId, currentPlayerId, house.id, x, z, 0);
             if (result.ok) cancelPlacing();
+          }
+
+          function handleFloorPointerMove(e: ThreeEvent<PointerEvent>) {
+            if (!placingInstanceId || !isOwn) return;
+            const { x, z } = clampToFloor(e.point.x, e.point.z);
+            const box = placingGhostBox(x, z);
+            const blocked = box ? boxOverlapsAny(box, boxes) : false;
+            setGhost({ x, z, blocked });
           }
 
           return (
@@ -102,20 +191,29 @@ export function World() {
               <HouseScene
                 house={house}
                 onFloorClick={isOwn ? handleFloorClick : undefined}
+                onFloorPointerMove={isOwn ? handleFloorPointerMove : undefined}
+                onFloorPointerLeave={isOwn ? () => setGhost(null) : undefined}
                 isOwn={isOwn}
                 label={isOwn ? undefined : `Chez ${owner?.name ?? "?"}`}
               />
+              {isOwn && ghost && placingInstanceId && (() => {
+                const placingInst = engine.getInstance(placingInstanceId);
+                const placingDef = placingInst ? engine.getDefinition(placingInst.defId) : undefined;
+                return placingDef ? <PlacementGhost def={placingDef} x={ghost.x} z={ghost.z} blocked={ghost.blocked} /> : null;
+              })()}
               {instances.map((inst) => {
                 const def = engine.getDefinition(inst.defId);
-                if (!def) return null;
+                if (!def || inst.location.kind !== "house") return null;
                 const b = speech.find((s) => s.targetInstanceId === inst.id);
+                const worldX = inst.location.x + entry.originX;
+                const worldZ = inst.location.z;
                 return (
                   <ObjectInstanceMesh
                     key={inst.id}
                     instance={inst}
                     def={def}
                     speech={b?.text}
-                    onInteract={() => engine.interact(inst.id, currentPlayerId)}
+                    onInteract={() => handleInteract(inst.id, worldX, worldZ)}
                     onContextMenu={(clientX, clientY) => {
                       if (isOwn && inst.ownerId === currentPlayerId) openContextMenu(inst.id, clientX, clientY);
                     }}
@@ -131,8 +229,11 @@ export function World() {
           bounds={bounds}
           boxes={boxes}
           houses={footprints}
+          walkables={walkables}
           posRef={posRef}
+          walkTargetRef={walkTargetRef}
           onHouseChange={handleHouseChange}
+          onWalkOn={handleWalkOn}
         />
 
         {engine

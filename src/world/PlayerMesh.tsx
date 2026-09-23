@@ -8,6 +8,7 @@ import { engine } from "../data/store";
 
 const SPEED = 3.2;
 const PLAYER_RADIUS = 0.35;
+const ARRIVE_EPS = 0.12;
 
 export interface CollidableBox {
   x: number;
@@ -47,6 +48,14 @@ function collides(x: number, z: number, boxes: CollidableBox[]): boolean {
   return false;
 }
 
+/** Arbitrary-size box vs. box overlap test — used to validate a placement ghost, not player movement. */
+export function boxOverlapsAny(box: CollidableBox, others: CollidableBox[]): boolean {
+  for (const o of others) {
+    if (Math.abs(box.x - o.x) < box.halfW + o.halfW && Math.abs(box.z - o.z) < box.halfD + o.halfD) return true;
+  }
+  return false;
+}
+
 export interface WorldBounds {
   minX: number;
   maxX: number;
@@ -59,6 +68,17 @@ export interface HouseFootprint {
   originX: number;
   width: number;
   depth: number;
+}
+
+/** A non-collidable ("objet simple") instance's footprint in world space — for on_walk_on detection. */
+export interface WalkableFootprint extends CollidableBox {
+  instanceId: string;
+}
+
+export interface WalkTarget {
+  x: number;
+  z: number;
+  onArrive: () => void;
 }
 
 function houseAt(x: number, z: number, houses: HouseFootprint[]): string | null {
@@ -75,43 +95,86 @@ export function PlayerMesh({
   bounds,
   boxes,
   houses,
+  walkables,
   posRef,
+  walkTargetRef,
   onHouseChange,
+  onWalkOn,
 }: {
   playerId: string;
   bounds: WorldBounds;
   boxes: CollidableBox[];
   houses: HouseFootprint[];
+  walkables: WalkableFootprint[];
   posRef: React.MutableRefObject<{ x: number; z: number }>;
+  /** Set from outside (clicking an object, or a script's teleport_to) to walk here at normal speed. */
+  walkTargetRef: React.MutableRefObject<WalkTarget | null>;
   onHouseChange?: (houseId: string | null) => void;
+  onWalkOn?: (instanceId: string) => void;
 }) {
   const meshRef = useRef<THREE.Group>(null);
   const keys = useKeyboard();
   const syncAccumulator = useRef(0);
   const lastHouseId = useRef<string | null | undefined>(undefined);
+  const standingOn = useRef<Set<string>>(new Set());
 
   useFrame((_state, delta) => {
     const pressed = keys.current;
-    let dx = 0;
-    let dz = 0;
-    if (pressed.has("KeyW") || pressed.has("ArrowUp")) dz -= 1;
-    if (pressed.has("KeyS") || pressed.has("ArrowDown")) dz += 1;
-    if (pressed.has("KeyA") || pressed.has("ArrowLeft")) dx -= 1;
-    if (pressed.has("KeyD") || pressed.has("ArrowRight")) dx += 1;
+    // Taking manual control cancels any in-progress auto-walk (click-to-interact or teleport_to).
+    if (walkTargetRef.current && pressed.size > 0) walkTargetRef.current = null;
 
-    if (dx !== 0 || dz !== 0) {
-      const len = Math.hypot(dx, dz);
-      dx = (dx / len) * SPEED * delta;
-      dz = (dz / len) * SPEED * delta;
+    if (walkTargetRef.current) {
+      const target = walkTargetRef.current;
+      const dx = target.x - posRef.current.x;
+      const dz = target.z - posRef.current.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < ARRIVE_EPS) {
+        walkTargetRef.current = null;
+        target.onArrive();
+      } else {
+        const stepLen = Math.min(dist, SPEED * delta);
+        const stepX = (dx / dist) * stepLen;
+        const stepZ = (dz / dist) * stepLen;
+        const beforeX = posRef.current.x;
+        const beforeZ = posRef.current.z;
 
-      const nextX = THREE.MathUtils.clamp(posRef.current.x + dx, bounds.minX, bounds.maxX);
-      if (!collides(nextX, posRef.current.z, boxes)) posRef.current.x = nextX;
+        const nextX = THREE.MathUtils.clamp(posRef.current.x + stepX, bounds.minX, bounds.maxX);
+        if (!collides(nextX, posRef.current.z, boxes)) posRef.current.x = nextX;
 
-      const nextZ = THREE.MathUtils.clamp(posRef.current.z + dz, bounds.minZ, bounds.maxZ);
-      if (!collides(posRef.current.x, nextZ, boxes)) posRef.current.z = nextZ;
+        const nextZ = THREE.MathUtils.clamp(posRef.current.z + stepZ, bounds.minZ, bounds.maxZ);
+        if (!collides(posRef.current.x, nextZ, boxes)) posRef.current.z = nextZ;
 
-      if (meshRef.current) {
-        meshRef.current.rotation.y = Math.atan2(dx, dz);
+        if (meshRef.current) meshRef.current.rotation.y = Math.atan2(stepX, stepZ);
+
+        // Walking toward a collidable object's own center (or a wall): approaching along a
+        // single axis only ever blocks THAT axis, so "both axes blocked" never trips — check
+        // whether we actually moved at all instead, and stop right here once we're stuck.
+        const moved = Math.hypot(posRef.current.x - beforeX, posRef.current.z - beforeZ);
+        if (moved < 0.001) {
+          walkTargetRef.current = null;
+          target.onArrive();
+        }
+      }
+    } else {
+      let dx = 0;
+      let dz = 0;
+      if (pressed.has("KeyW") || pressed.has("ArrowUp")) dz -= 1;
+      if (pressed.has("KeyS") || pressed.has("ArrowDown")) dz += 1;
+      if (pressed.has("KeyA") || pressed.has("ArrowLeft")) dx -= 1;
+      if (pressed.has("KeyD") || pressed.has("ArrowRight")) dx += 1;
+
+      if (dx !== 0 || dz !== 0) {
+        const len = Math.hypot(dx, dz);
+        dx = (dx / len) * SPEED * delta;
+        dz = (dz / len) * SPEED * delta;
+
+        const nextX = THREE.MathUtils.clamp(posRef.current.x + dx, bounds.minX, bounds.maxX);
+        if (!collides(nextX, posRef.current.z, boxes)) posRef.current.x = nextX;
+
+        const nextZ = THREE.MathUtils.clamp(posRef.current.z + dz, bounds.minZ, bounds.maxZ);
+        if (!collides(posRef.current.x, nextZ, boxes)) posRef.current.z = nextZ;
+
+        if (meshRef.current) meshRef.current.rotation.y = Math.atan2(dx, dz);
       }
     }
 
@@ -129,6 +192,17 @@ export function PlayerMesh({
       if (currentHouseId !== lastHouseId.current) {
         lastHouseId.current = currentHouseId;
         onHouseChange?.(currentHouseId);
+      }
+
+      if (onWalkOn) {
+        const standingNow = new Set<string>();
+        for (const w of walkables) {
+          if (collides(posRef.current.x, posRef.current.z, [w])) standingNow.add(w.instanceId);
+        }
+        for (const id of standingNow) {
+          if (!standingOn.current.has(id)) onWalkOn(id);
+        }
+        standingOn.current = standingNow;
       }
     }
   });

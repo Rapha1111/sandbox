@@ -16,6 +16,12 @@ export function ContextMenu() {
     closeContextMenu();
   }
 
+  function handleSettings() {
+    if (!menu) return;
+    void engine.runSettingsEvent(menu.instanceId, currentPlayerId);
+    closeContextMenu();
+  }
+
   return (
     <div className="context-menu__backdrop" onClick={closeContextMenu} onContextMenu={(e) => e.preventDefault()}>
       <div
@@ -24,6 +30,9 @@ export function ContextMenu() {
         onClick={(e) => e.stopPropagation()}
       >
         {def && <div className="context-menu__title">{def.name}</div>}
+        <button onClick={handleSettings} title="Lance on_settings(player) — configuration propre à cet exemplaire, définie dans son script">
+          ⚙️ Paramètres
+        </button>
         {def?.collidable && <button onClick={() => openMachineInventory(menu.instanceId)}>📦 Inventaire</button>}
         <button onClick={() => startMoving(menu.instanceId)}>✋ Déplacer</button>
         <button onClick={handleRecover} title="Récupère le bloc, son solde et son contenu dans votre inventaire">

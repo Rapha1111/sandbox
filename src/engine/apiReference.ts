@@ -49,6 +49,19 @@ export const API_REFERENCE: ApiEntry[] = [
     signature: "def on_player_enter(player):",
     description: "Appelé pour chaque objet placé quand un joueur entre dans le lieu.",
   },
+  {
+    group: "events",
+    signature: "def on_settings(player):",
+    description:
+      "Appelé quand le propriétaire clique sur « ⚙️ Paramètres » dans le menu (clic droit) d'un exemplaire placé. C'est l'endroit pour une configuration propre à cet exemplaire, typiquement avec player.ask_text()/ask_number()/ask_choice() puis object.set_state().",
+    example: 'def on_settings(player):\n    reponse = player.ask_number("Prix de vente ?", 1, 500)\n    if reponse.accepted:\n        object.set_state("prix", reponse.value)',
+  },
+  {
+    group: "events",
+    signature: "def on_walk_on(player):",
+    description:
+      "Appelé quand un joueur marche sur cet objet — uniquement pour un objet simple (sans collision, on marche dessus) ; un bloc normal bloque le passage et ne peut donc jamais recevoir cet évènement.",
+  },
 
   // --- player.* ---
   {
@@ -211,6 +224,14 @@ export const API_REFERENCE: ApiEntry[] = [
     signature: "object.get_balance()",
     description: "Retourne le solde en coins que cet objet a collecté (via des player.request_money() acceptés).",
     kind: "local",
+  },
+  {
+    group: "object",
+    signature: "object.teleport_to(player)",
+    description:
+      'Déplace "player" (à vitesse normale, en marchant — pas instantanément) jusqu\'à l\'emplacement de cet objet. Ne fonctionne que si cet objet est un objet simple (sans collision) : on ne peut pas téléporter quelqu\'un sur un bloc qui bloquerait aussitôt son passage.',
+    kind: "local",
+    example: 'def on_interact(player):\n    object.teleport_to(player)',
   },
   {
     group: "object",

@@ -23,6 +23,7 @@ export const ACTION_KIND: Record<string, ActionKind> = {
   "object.get_property": "local",
   "object.get_balance": "local",
   "object.get_id": "local",
+  "object.teleport_to": "local",
   "player.ask_text": "local",
   "player.ask_choice": "local",
   "player.ask_yes_no": "local",

@@ -27,6 +27,8 @@ interface UiState {
   /** Multiplayer relay connection (server/index.ts) — see src/net/multiplayer.ts. */
   mpConnected: boolean;
   onlinePlayerIds: string[];
+  /** The relay URL this client is actually trying to reach — shown in the HUD to make a misconfigured deployment (e.g. VITE_WS_URL unset) obvious instead of a silent "Hors ligne". */
+  wsUrl: string;
   /** The room code (src/net/room.ts) this browser is currently in — the whole access-control model. */
   roomCode: string;
   /**
@@ -53,6 +55,7 @@ export const useGameStore = create<UiState>()(() => ({
   viewingInstanceInventoryId: null,
   mpConnected: false,
   onlinePlayerIds: [],
+  wsUrl: "",
   roomCode: initialRoomCode,
   pendingWalkRequest: null,
 }));
@@ -62,7 +65,12 @@ engine.subscribe(() => {
 });
 
 multiplayer.subscribe((state) => {
-  useGameStore.setState({ mpConnected: state.connected, onlinePlayerIds: [...state.onlinePlayerIds], roomCode: state.roomCode });
+  useGameStore.setState({
+    mpConnected: state.connected,
+    onlinePlayerIds: [...state.onlinePlayerIds],
+    roomCode: state.roomCode,
+    wsUrl: state.wsUrl,
+  });
 });
 
 /** Leaves the current room and joins another — share your own code with a friend, or enter theirs. */

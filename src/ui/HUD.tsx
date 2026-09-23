@@ -8,6 +8,7 @@ export function HUD() {
   const currentPlayerId = useGameStore((s) => s.currentPlayerId);
   const mpConnected = useGameStore((s) => s.mpConnected);
   const onlinePlayerIds = useGameStore((s) => s.onlinePlayerIds);
+  const wsUrl = useGameStore((s) => s.wsUrl);
   const player = engine.getPlayer(currentPlayerId);
   if (!player) return null;
 
@@ -39,9 +40,13 @@ export function HUD() {
             🏡 {atMaxSize ? "Maison au maximum" : `Agrandir (${cost} 🪙)`}
           </button>
         )}
-        <div className="hud__presence" title={mpConnected ? "Connecté au serveur multijoueur" : "Hors ligne — monde local uniquement"}>
+        <div
+          className="hud__presence"
+          title={mpConnected ? `Connecté à ${wsUrl}` : `Hors ligne — tentative de connexion à ${wsUrl || "(URL inconnue)"}`}
+        >
           <span className={mpConnected ? "hud__presence-dot hud__presence-dot--on" : "hud__presence-dot"} />
           {mpConnected ? `${others.length} joueur(s) en ligne` : "Hors ligne"}
+          {!mpConnected && wsUrl && <span className="hud__presence-url">({wsUrl})</span>}
         </div>
         <RoomPanel />
       </div>

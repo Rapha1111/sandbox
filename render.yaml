@@ -1,0 +1,15 @@
+# Deploys the multiplayer relay server (server/index.ts) as a standalone service on Render.
+# The client (Vite app) is deployed separately on Vercel and is NOT covered here — Vercel only
+# runs stateless serverless functions and can't host a long-lived WebSocket process. See README
+# "Multijoueur" for the full explanation and the manual setup steps if you'd rather not use this
+# Blueprint (Render dashboard -> New -> Blueprint -> point at this repo).
+services:
+  - type: web
+    name: sandbox-relay
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run server:start
+    envVars:
+      - key: NODE_ENV
+        value: production

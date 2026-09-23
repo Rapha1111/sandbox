@@ -14,6 +14,13 @@ export interface ConnectionState {
   connected: boolean;
   roomCode: string;
   onlinePlayerIds: Set<string>;
+  /**
+   * The relay URL this client is actually trying to reach — surfaced in the HUD so a
+   * misconfigured deployment (e.g. VITE_WS_URL not set when building the client, so it falls
+   * back to a useless localhost:8787 that will never exist for a visitor) is visible at a
+   * glance instead of just silently sitting in "Hors ligne".
+   */
+  wsUrl: string;
 }
 
 type Listener = (state: ConnectionState) => void;
@@ -46,7 +53,7 @@ export function connectMultiplayer(engine: GameEngine, identity: LocalIdentity, 
   let connected = false;
 
   function snapshot(): ConnectionState {
-    return { connected, roomCode, onlinePlayerIds: new Set(onlinePlayerIds) };
+    return { connected, roomCode, onlinePlayerIds: new Set(onlinePlayerIds), wsUrl: resolveWsUrl() };
   }
 
   function emit(): void {

@@ -28,10 +28,46 @@ bouton **🔑** d'une des deux sessions à l'autre via son champ « Rejoindre »
 (voir « Multijoueur » ci-dessous — sans ça, les deux restent chacune dans
 leur propre salon et ne se voient pas).
 
-Pour un déploiement (ex. le client sur Vercel), pointez le client vers un
-serveur de relais accessible publiquement avec la variable d'env Vite
-`VITE_WS_URL` (ex. `VITE_WS_URL=wss://mon-serveur.example.com npm run
-build`) — voir « Multijoueur » pour les limites de ce relais.
+### Déployer (ex. client sur Vercel) — le point qui piège tout le monde
+
+**Vercel (comme toute plateforme purement serverless) ne peut pas faire
+tourner `server/index.ts`.** C'est un process Node qui reste ouvert en
+permanence et garde des salons en mémoire ; les fonctions Vercel sont
+sans état et de courte durée, donc aucun `ws://.../8787` n'y écoute
+jamais. Si vous déployez juste le client sur Vercel sans rien d'autre, il
+retombe silencieusement en solo (badge **Hors ligne** dans le HUD,
+survolez-le ou regardez à côté : il affiche l'URL exacte qu'il essaie de
+joindre — un `wss://votre-site.vercel.app:8787` qui ne répondra jamais
+est le symptôme classique de cet oubli) et deux navigateurs avec le même
+code de salon ne se voient jamais.
+
+Il faut donc **deux déploiements séparés** :
+
+1. **Le relais** (`server/index.ts`) sur une plateforme qui fait tourner
+   un vrai process persistant — [Render](https://render.com) convient
+   très bien et a un plan gratuit :
+   - Dashboard Render → **New** → **Blueprint** → pointez sur ce dépôt
+     (le `render.yaml` à la racine le configure automatiquement : build
+     `npm install`, démarrage `npm run server:start`). Sans Blueprint,
+     créez un **Web Service** manuellement avec les mêmes commandes.
+   - Une fois déployé, Render donne une URL du genre
+     `https://sandbox-relay-xxxx.onrender.com` — le relais WebSocket est
+     joignable sur cette même adresse en `wss://` (même hôte, TLS géré
+     par Render).
+   - (Le plan gratuit de Render met le service en veille après
+     inactivité ; la première connexion après une pause prend quelques
+     secondes le temps qu'il se réveille — normal pour un prototype.)
+2. **Le client** sur Vercel, avec la variable d'environnement
+   `VITE_WS_URL` réglée sur l'URL `wss://` obtenue à l'étape précédente
+   (Vercel → *Project Settings* → *Environment Variables* →
+   `VITE_WS_URL` = `wss://sandbox-relay-xxxx.onrender.com`). **Redéployez
+   ensuite le client** — Vite fige les variables `VITE_*` au moment du
+   build, donc juste ajouter la variable sans redéclencher un build ne
+   suffit pas.
+
+Une fois les deux en place, le badge du HUD passe à vert avec l'URL
+Render, et le code de salon partagé entre deux visiteurs les connecte
+bien. Voir « Multijoueur » ci-dessous pour les limites de ce relais.
 
 ## Ce qui est implémenté
 

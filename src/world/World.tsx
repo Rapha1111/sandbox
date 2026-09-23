@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
-import { engine, useGameStore, cancelPlacing } from "../data/store";
+import { engine, useGameStore, cancelPlacing, openContextMenu } from "../data/store";
 import { HouseScene } from "./HouseScene";
 import { PlayerMesh, collidables } from "./PlayerMesh";
 import { CameraRig } from "./CameraRig";
@@ -56,7 +56,9 @@ export function World() {
               def={def}
               speech={b?.text}
               onInteract={() => engine.interact(inst.id, currentPlayerId)}
-              onPickup={() => engine.pickupToInventory(inst.id, currentPlayerId)}
+              onContextMenu={(clientX, clientY) => {
+                if (inst.ownerId === currentPlayerId) openContextMenu(inst.id, clientX, clientY);
+              }}
             />
           );
         })}
@@ -66,7 +68,7 @@ export function World() {
           Cliquez au sol pour placer l'objet — <button onClick={cancelPlacing}>Annuler</button>
         </div>
       )}
-      <div className="world__controls-hint">WASD / flèches pour se déplacer · clic gauche = interagir · clic droit = ramasser</div>
+      <div className="world__controls-hint">WASD / flèches pour se déplacer · clic gauche = interagir · clic droit = menu</div>
     </div>
   );
 }

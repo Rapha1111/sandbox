@@ -24,8 +24,9 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
   sauvegarde/chargement automatique.
 - **Objets (P1)** — `Object Creator` (bouton « ✨ Créer un objet ») : nom,
   dimensions (largeur/hauteur/profondeur), collision, propriétés
-  personnalisées, placement depuis l'inventaire par clic au sol, ramassage
-  par clic droit sur un objet placé.
+  personnalisées, placement depuis l'inventaire par clic au sol. Clic droit
+  sur un objet placé que vous possédez → menu contextuel **Inventaire /
+  Déplacer / Supprimer** (voir plus bas).
 - **Textures pixel art (P2)** — chaque objet a sa propre **bibliothèque de
   textures nommées** (onglet Textures : grille de faces + section
   "Bibliothèque" pour créer/renommer/supprimer des textures additionnelles,
@@ -71,14 +72,28 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
   que si le créateur de la machine est aussi le créateur de l'objet donné
   — impossible donc de faire distribuer à l'infini par une machine la
   création de quelqu'un d'autre sans qu'elle l'ait réellement en stock.
-  Démonstration : le "Coffre à dons" du monde de départ demande un
-  "Ticket" au joueur via `request_object`.
-- **Identifiants uniques** — chaque définition (`def.id`) et chaque
-  exemplaire placé/possédé (`instance.id`) a un identifiant unique et
-  stable, généré à la création et jamais réutilisé. Visible dans
-  l'onglet Info de l'Object Creator (définition) et en info-bulle sur
-  chaque pile de l'inventaire (exemplaires) ; lisible depuis un script
-  avec `object.get_id()`.
+- **Gestion d'un objet placé** — clic droit sur un bloc que vous possédez
+  ouvre un menu à trois entrées : **📦 Inventaire** (voir ci-dessous),
+  **✋ Déplacer** (le reprendre puis cliquer un nouvel emplacement — son
+  solde et son contenu suivent, rien n'est perdu) et **🗑️ Supprimer**. La
+  suppression est destructrice pour le bloc, jamais pour vous : tout
+  l'argent qu'il avait collecté (`object.get_balance()`) et tous les
+  objets stockés dedans sont automatiquement rendus à votre inventaire
+  juste avant sa disparition.
+- **📦 Inventaire d'un objet placé** — panneau dédié pour gérer directement
+  le contenu d'une machine que vous possédez, sans passer par un script :
+  déposer/retirer des coins (comme pour `player.request_money`/
+  `object.send_money`, mais en action directe, sans confirmation puisque
+  c'est votre propre bien), et déposer/retirer des objets un peu comme
+  `player.request_object`/`object.give_item`, mais initié par vous plutôt
+  que par le script de la machine.
+- **Identifiant unique** — chaque définition publiée (`def.id`) a un
+  identifiant unique et stable, visible dans l'onglet Info de l'Object
+  Creator. Un objet placé peut lire le sien (celui de son *exemplaire*,
+  pas de sa définition) depuis son propre script avec `object.get_id()` —
+  les simples exemplaires empilés dans un inventaire (interchangeables,
+  affichés en « ×N ») n'exposent pas d'identifiant individuel dans
+  l'interface.
 - **Se donner un objet** — en bas de l'inventaire, un créateur retrouve un
   sélecteur listant tout ce qu'il a lui-même publié, un compteur de
   quantité et un bouton « Se le donner » pour ajouter directement des
@@ -92,9 +107,7 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
   via son identifiant avec `object.send_money(id_joueur, montant)`
   (`player.get_id()` donne l'identifiant du joueur courant). Le transfert
   est atomique et ne peut jamais dépasser ce que l'objet a réellement
-  collecté. Démonstration dans le monde de départ : l'objet "Cagnotte"
-  encaisse 20 coins par interaction et reverse automatiquement tout son
-  solde dès qu'il atteint 100.
+  collecté.
 - **Référence des commandes** — bouton **?** (HUD et onglet Script) ouvrant
   la liste complète de l'API disponible pour les scripts (évènements,
   `player.*`, `object.*`, fonctions intégrées), avec description et exemple
@@ -108,12 +121,8 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
   `object.send_money()` ne peut mouvementer que le solde déjà collecté par
   l'objet — il ne peut ni créer d'argent ni débiter un joueur.
 
-Le monde démarre avec 8 objets déjà publiés (Cube Bonjour, Machine à soda,
-Distributeur de tickets, Ticket, Cagnotte, Coffre à dons, Machine à
-devinette, Livre d'or) pour illustrer immédiatement le flux complet décrit
-aux §29–31 de la spec ainsi que les textures multiples, le solde des
-objets, le stockage d'objets dans une machine et les boîtes de dialogue,
-tout en laissant le joueur créer les siens.
+Le monde démarre **vide** (juste le joueur et sa maison) : c'est au joueur
+de créer ses propres objets via l'Object Creator dès la première session.
 
 ## Architecture
 
@@ -143,15 +152,20 @@ plus tard.
 
 ## Testé manuellement (Playwright, voir aussi §29–31 de la spec)
 
+Le monde de départ étant désormais vide, ces scénarios créent leurs propres
+objets de test plutôt que de s'appuyer sur des objets pré-publiés.
+
 1. Créer un objet → dessiner une texture pixel art → écrire
    `def on_interact(player): player.say("Hello !")` → **Tester** → le
    message apparaît dans la console de debug → **Publier** → l'objet
    apparaît dans l'inventaire → **Placer** → clic sur l'objet en jeu → il
    répond bien "Hello !".
-2. Objet payant (Machine à soda) : clic → modale "100 coins" → Accepter →
-   solde débité de 100 (atomique) ; Refuser → solde inchangé.
-3. Objet donnant un objet (Distributeur de tickets) : paiement de 50 coins
-   accepté → un "Ticket" est ajouté à l'inventaire.
+2. Objet payant : `player.request_money(100)` → clic → modale "100 coins"
+   → Accepter → solde débité de 100 (atomique) ; Refuser → solde inchangé.
+3. Objet donnant un objet en stock vs. minté : un script qui dépose un
+   objet via `player.request_object()` puis le redemande avec
+   `object.give_item()` dans la même interaction confirme, dans la console
+   de debug, le chemin "Objet reçu (en stock)" — pas "nouvel exemplaire".
 4. Sauvegarde : rechargement de la page → solde, inventaire et objets
    placés inchangés (localStorage).
 5. Textures multiples : dans l'onglet Textures, créer une texture
@@ -159,20 +173,25 @@ plus tard.
    `object.set_texture("ouvert")` suivi de `player.say(str(object.get_texture()))`
    → **Tester** → la console de debug confirme `"ouvert"` et l'aperçu du
    cube change bien de couleur.
-6. Solde d'objet : interagir 5 fois avec la "Cagnotte" (20 coins à chaque
-   fois, accepter) → le solde du joueur descend de 20 à chaque tour puis
-   remonte d'un coup au 5ᵉ (100 coins reversés automatiquement par
-   `object.send_money`) → validé de bout en bout (500→480→460→440→420→500).
-7. Objet stocké dans une machine : interagir avec le "Coffre à dons" en
-   ayant un "Ticket" en inventaire → modale "DEMANDE D'OBJET : 1× Ticket"
-   → Accepter → le Ticket disparaît de l'inventaire du joueur (stocké dans
-   le Coffre) ; sans Ticket en poche, la demande est automatiquement
-   refusée avec le message "vous ne possédez pas cet objet".
-8. Boîtes de dialogue : interagir avec la "Machine à devinette" → boîte
-   Oui/Non, puis champ numérique (1 à 10) → un nombre aléatoire
-   (`randint`) est tiré et comparé → message de victoire/défaite, puis un
-   cooldown de 5s (`time()`) empêche de rejouer immédiatement. Le "Livre
-   d'or" enchaîne un champ de texte puis un sélecteur de couleur.
+6. Solde d'objet : un script qui encaisse 20 coins par interaction et se
+   reverse tout son solde via `object.send_money()` dès qu'il atteint 100
+   → cycle complet validé de bout en bout (500→480→460→440→420→500).
+7. Boîtes de dialogue : boîte Oui/Non, puis champ numérique (1 à 10) → un
+   nombre aléatoire (`randint`) est tiré et comparé → message de
+   victoire/défaite, puis un cooldown de 5s (`time()`) empêche de rejouer
+   immédiatement sur une instance déjà placée (pas seulement en mode
+   Test, qui repart d'un état vierge à chaque clic).
+8. Gestion d'un objet placé : clic droit sur un bloc possédé → menu à 3
+   boutons. **Inventaire** → dépôt de 50 coins et d'un objet depuis
+   l'inventaire du joueur vers la machine, puis retrait partiel des coins
+   — soldes des deux côtés cohérents à chaque étape. **Déplacer** → le
+   bloc repasse en mode placement et peut être redéposé ailleurs sans
+   perdre son contenu. **Supprimer** avec du solde et un objet encore
+   stockés dedans → les deux sont automatiquement rendus à l'inventaire
+   du joueur avant la suppression du bloc.
+9. Plus de badge d'identifiant par exemplaire dans l'inventaire (vérifié
+   par absence de la classe `inventory__id` dans le DOM) ; l'identifiant
+   de définition reste visible dans l'Object Creator.
 
 ## Volontairement non traité dans ce prototype (voir spec §35)
 

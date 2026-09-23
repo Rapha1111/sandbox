@@ -18,13 +18,13 @@ export function ObjectInstanceMesh({
   instance,
   def,
   onInteract,
-  onPickup,
+  onContextMenu,
   speech,
 }: {
   instance: ObjectInstance;
   def: ObjectDefinition;
   onInteract: () => void;
-  onPickup: () => void;
+  onContextMenu: (clientX: number, clientY: number) => void;
   speech?: string;
 }) {
   const { width, height, depth } = def.dimensions;
@@ -58,7 +58,7 @@ export function ObjectInstanceMesh({
         onContextMenu={(e) => {
           e.stopPropagation();
           e.nativeEvent.preventDefault();
-          onPickup();
+          onContextMenu(e.nativeEvent.clientX, e.nativeEvent.clientY);
         }}
       >
         <boxGeometry args={[width, height, depth]} />

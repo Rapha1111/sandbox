@@ -134,184 +134,6 @@ export class GameEngine {
       houseId,
       position: { x: 0, z: 3 },
     });
-    this.seedDemoObjects(playerId, houseId);
-  }
-
-  /** A few pre-built, published objects so the world isn't empty on first launch (spec §29-31 examples). */
-  private seedDemoObjects(playerId: PlayerId, houseId: HouseId): void {
-    // Only "top" and "front" are ever assigned — "bottom" has no texture and
-    // "back"/"left"/"right" mirror "front" automatically (EDITABLE_FACE_NAMES).
-    const topAndFront = (libName: string) => ({ top: libName, front: libName });
-    const publishAt = (
-      name: string,
-      script: string,
-      color: string,
-      x: number,
-      z: number,
-      dims?: Partial<ObjectDefinition["dimensions"]>,
-      extraTextures?: Record<string, string>
-    ) => {
-      const draft = this.createDraftDefinition(playerId);
-      const defaultTex = this.createTexture(playerId, "défaut", 16);
-      this.updateTexturePixels(defaultTex.id, new Array(16 * 16).fill(color));
-      const textureLibrary: Record<string, TextureId> = { défaut: defaultTex.id };
-      if (extraTextures) {
-        for (const [libName, extraColor] of Object.entries(extraTextures)) {
-          const tex = this.createTexture(playerId, libName, 16);
-          this.updateTexturePixels(tex.id, new Array(16 * 16).fill(extraColor));
-          textureLibrary[libName] = tex.id;
-        }
-      }
-      this.updateDefinition(draft.id, {
-        name,
-        script,
-        textureLibrary,
-        textures: topAndFront("défaut"),
-        collidable: name !== "Ticket",
-        dimensions: { width: 1, height: 1, depth: 1, ...dims },
-      });
-      const result = this.publishDefinition(draft.id);
-      if (result.instance) this.placeFromInventory(result.instance.id, houseId, x, z, 0);
-      return draft.id;
-    };
-
-    publishAt(
-      "Ticket",
-      'def on_interact(player):\n    player.say("C\'est un ticket !")\n',
-      "#facc15",
-      -3, 1,
-      { width: 0.4, height: 0.05, depth: 0.6 }
-    );
-
-    publishAt(
-      "Cube Bonjour",
-      'def on_interact(player):\n    player.say("Hello !")\n',
-      "#60a5fa",
-      -2, -1
-    );
-
-    // Demonstrates object.set_texture()/get_texture(): flashes to "actif" on a
-    // successful payment, then on_tick reverts it on the next tick.
-    publishAt(
-      "Machine à soda",
-      [
-        "def on_interact(player):",
-        "    transaction = player.request_money(100)",
-        "    if transaction.accepted:",
-        '        object.set_texture("actif")',
-        '        player.say("Merci !")',
-        "    else:",
-        '        player.say("Reviens avec plus de coins !")',
-        "",
-        "def on_tick():",
-        '    if object.get_texture() == "actif":',
-        '        object.set_texture("défaut")',
-        "",
-      ].join("\n"),
-      "#ef4444",
-      0, -2,
-      { width: 0.8, height: 1.4, depth: 0.8 },
-      { actif: "#7f1d1d" }
-    );
-
-    publishAt(
-      "Distributeur de tickets",
-      [
-        "def on_interact(player):",
-        "    transaction = player.request_money(50)",
-        "    if transaction.accepted:",
-        '        object.give_item(player, "Ticket")',
-        '        player.say("Voici votre ticket !")',
-        "    else:",
-        '        player.say("Le ticket coûte 50 coins.")',
-        "",
-      ].join("\n"),
-      "#22c55e",
-      2, -1,
-      { width: 0.8, height: 1.4, depth: 0.8 }
-    );
-
-    // Demonstrates object.get_balance()/send_money(): the object escrows what it
-    // collects and pays itself out once its own wallet reaches 100 coins.
-    publishAt(
-      "Cagnotte",
-      [
-        "def on_interact(player):",
-        "    transaction = player.request_money(20)",
-        "    if transaction.accepted:",
-        "        solde = object.get_balance()",
-        '        player.say("Cagnotte : " + str(solde) + " coins")',
-        "        if solde >= 100:",
-        "            object.send_money(player.get_id(), solde)",
-        '            player.say("Cagnotte pleine, je la reverse !")',
-        "    else:",
-        '        player.say("La cagnotte demande 20 coins.")',
-        "",
-      ].join("\n"),
-      "#a855f7",
-      0, 1
-    );
-
-    // Demonstrates player.request_object(): asks the player to hand over a "Ticket",
-    // which is then stored in this object's own inventory (object.give_item() would
-    // dispense that exact stocked instance first, before ever minting a new one).
-    publishAt(
-      "Coffre à dons",
-      [
-        "def on_interact(player):",
-        '    demande = player.request_object("Ticket")',
-        "    if demande.accepted:",
-        '        player.say("Merci pour le ticket !")',
-        "    else:",
-        '        player.say("Vous n\'avez pas de Ticket à donner.")',
-        "",
-      ].join("\n"),
-      "#f59e0b",
-      2, 1
-    );
-
-    // Demonstrates player.ask_yes_no()/ask_number(), randint() and time()-based cooldowns.
-    publishAt(
-      "Machine à devinette",
-      [
-        "def on_interact(player):",
-        '    pret = object.get_state("pret_a")',
-        "    if pret != None and time() < pret:",
-        '        player.say("Attendez un peu avant de rejouer...")',
-        "        return",
-        '    jouer = player.ask_yes_no("Deviner un nombre entre 1 et 10 ?")',
-        "    if jouer:",
-        '        reponse = player.ask_number("Votre nombre ?", 1, 10)',
-        "        if reponse.accepted:",
-        "            mystere = randint(1, 10)",
-        "            if reponse.value == mystere:",
-        '                player.say("Bravo ! C\'était " + str(mystere) + " !")',
-        "            else:",
-        '                player.say("Raté, c\'était " + str(mystere) + ".")',
-        '            object.set_state("pret_a", time() + 5)',
-        "    else:",
-        '        player.say("D\'accord, une autre fois !")',
-        "",
-      ].join("\n"),
-      "#0ea5e9",
-      -2, 1
-    );
-
-    // Demonstrates player.ask_text() and player.ask_choice().
-    publishAt(
-      "Livre d'or",
-      [
-        "def on_interact(player):",
-        '    nom = player.ask_text("Laissez votre nom dans le livre d\'or")',
-        "    if nom.accepted:",
-        '        couleur = player.ask_choice("Choisissez une couleur", ["Rouge", "Vert", "Bleu"])',
-        "        if couleur.accepted:",
-        '            player.say(nom.value + " a signé en " + couleur.value + " !")',
-        "",
-      ].join("\n"),
-      "#ec4899",
-      0, 2
-    );
   }
 
   // ---------------------------------------------------------------------
@@ -673,6 +495,11 @@ export class GameEngine {
     return { ok: true };
   }
 
+  /**
+   * Deleting a block is destructive for the block, never for its owner's belongings: whatever
+   * coins it had collected (object.get_balance()) and whatever items were stocked in it
+   * (player.request_object()) are handed back to the deleting owner first.
+   */
   deleteInstance(instanceId: ObjectInstanceId, requesterId: PlayerId): { ok: boolean; reason?: string } {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
@@ -680,13 +507,91 @@ export class GameEngine {
     const def = this.defs.get(inst.defId);
     const cleanup = def ? this.runEventForInstance(inst, def, "on_destroy", []) : Promise.resolve();
     void cleanup.finally(() => {
-      this.instances.delete(instanceId);
-      // Whatever this instance had collected via player.request_object() has nowhere to live anymore.
-      for (const held of this.listInstanceInventory(instanceId)) {
-        for (const heldId of held.instanceIds) this.instances.delete(heldId);
+      const owner = this.players.get(requesterId);
+      if (owner && inst.wallet > 0) {
+        owner.money += inst.wallet;
+        this.pushLog("result", `+${inst.wallet} coins récupérés de "${def?.name ?? inst.id}" avant suppression`);
       }
+      let recovered = 0;
+      for (const held of this.listInstanceInventory(instanceId)) {
+        for (const heldId of held.instanceIds) {
+          const heldInst = this.instances.get(heldId);
+          if (!heldInst) continue;
+          heldInst.ownerId = requesterId;
+          heldInst.location = { kind: "inventory" };
+          recovered++;
+        }
+      }
+      if (recovered > 0) {
+        this.pushLog("result", `${recovered} objet(s) récupéré(s) de "${def?.name ?? inst.id}" avant suppression`);
+      }
+      this.instances.delete(instanceId);
       this.notify();
     });
+    return { ok: true };
+  }
+
+  // ---------------------------------------------------------------------
+  // Owner-managed block storage — direct player actions from the "Inventaire"
+  // context-menu entry on a placed block, distinct from the script-mediated
+  // player.request_money()/request_object() (no confirmation needed: it's
+  // the owner managing their own property, like opening their own chest).
+  // ---------------------------------------------------------------------
+
+  withdrawMoneyFromInstance(playerId: PlayerId, instanceId: ObjectInstanceId, amount: number): { ok: boolean; reason?: string } {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return { ok: false, reason: "Objet introuvable" };
+    if (inst.ownerId !== playerId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
+    if (!Number.isFinite(amount) || amount <= 0) return { ok: false, reason: "Montant invalide" };
+    if (inst.wallet < amount) return { ok: false, reason: "Solde insuffisant dans la machine" };
+    const player = this.players.get(playerId);
+    if (!player) return { ok: false, reason: "Joueur introuvable" };
+    inst.wallet -= amount;
+    player.money += amount;
+    this.pushLog("result", `Retrait: +${amount} coins depuis ${instanceId}`);
+    this.notify();
+    return { ok: true };
+  }
+
+  depositMoneyToInstance(playerId: PlayerId, instanceId: ObjectInstanceId, amount: number): { ok: boolean; reason?: string } {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return { ok: false, reason: "Objet introuvable" };
+    if (inst.ownerId !== playerId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
+    if (!Number.isFinite(amount) || amount <= 0) return { ok: false, reason: "Montant invalide" };
+    const player = this.players.get(playerId);
+    if (!player || player.money < amount) return { ok: false, reason: "Solde insuffisant" };
+    player.money -= amount;
+    inst.wallet += amount;
+    this.pushLog("result", `Dépôt: -${amount} coins vers ${instanceId}`);
+    this.notify();
+    return { ok: true };
+  }
+
+  withdrawItemFromInstance(playerId: PlayerId, instanceId: ObjectInstanceId, itemInstanceId: ObjectInstanceId): { ok: boolean; reason?: string } {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return { ok: false, reason: "Objet introuvable" };
+    if (inst.ownerId !== playerId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
+    const item = this.instances.get(itemInstanceId);
+    if (!item || item.location.kind !== "instance_inventory" || item.location.hostInstanceId !== instanceId) {
+      return { ok: false, reason: "Cet objet n'est pas dans la machine" };
+    }
+    item.ownerId = playerId;
+    item.location = { kind: "inventory" };
+    this.notify();
+    return { ok: true };
+  }
+
+  depositItemToInstance(playerId: PlayerId, instanceId: ObjectInstanceId, itemInstanceId: ObjectInstanceId): { ok: boolean; reason?: string } {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return { ok: false, reason: "Objet introuvable" };
+    if (inst.ownerId !== playerId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
+    const item = this.instances.get(itemInstanceId);
+    if (!item || item.location.kind !== "inventory" || item.ownerId !== playerId) {
+      return { ok: false, reason: "Vous ne possédez pas cet objet" };
+    }
+    item.ownerId = null;
+    item.location = { kind: "instance_inventory", hostInstanceId: instanceId };
+    this.notify();
     return { ok: true };
   }
 

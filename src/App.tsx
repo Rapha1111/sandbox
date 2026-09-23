@@ -7,6 +7,8 @@ import { TransactionModal } from "./ui/TransactionModal";
 import { PromptModal } from "./ui/PromptModal";
 import { ObjectCreator } from "./ui/ObjectCreator";
 import { ApiReferenceModal } from "./ui/ApiReferenceModal";
+import { ContextMenu } from "./ui/ContextMenu";
+import { MachineInventoryModal } from "./ui/MachineInventoryModal";
 import "./App.css";
 
 function App() {
@@ -33,6 +35,8 @@ function App() {
       <TransactionModal />
       <PromptModal />
       <ApiReferenceModal />
+      <ContextMenu />
+      <MachineInventoryModal />
       {view === "editor" && editingDefId && <ObjectCreator />}
     </div>
   );

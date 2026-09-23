@@ -28,15 +28,11 @@ export function Inventory() {
             if (!def) return null;
             return (
               <div key={stack.defId} className="inventory__item">
-                <div className="inventory__thumb" title={`Identifiants : ${stack.instanceIds.join(", ")}`}>
+                <div className="inventory__thumb">
                   <TextureThumb defId={def.id} />
                   <span className="inventory__count">×{stack.instanceIds.length}</span>
                 </div>
                 <div className="inventory__name">{def.name}</div>
-                <div className="inventory__id" title={stack.instanceIds[0]}>
-                  #{stack.instanceIds[0].replace("inst_", "")}
-                  {stack.instanceIds.length > 1 ? "…" : ""}
-                </div>
                 <div className="inventory__actions">
                   <button onClick={() => startPlacing(stack.instanceIds[0])}>Placer</button>
                   <button onClick={() => openEditor(def.id)}>Éditer</button>

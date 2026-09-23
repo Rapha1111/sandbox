@@ -119,11 +119,6 @@
   font-weight: 600;
 }
 
-.inventory__id {
-  font-size: 10px;
-  color: var(--text-dim);
-  font-family: "SFMono-Regular", Consolas, monospace;
-}
 
 .inventory__actions {
   display: flex;

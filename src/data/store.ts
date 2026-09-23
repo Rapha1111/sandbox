@@ -14,6 +14,10 @@ interface UiState {
   inventoryOpen: boolean;
   placingInstanceId: string | null;
   apiHelpOpen: boolean;
+  /** Right-click context menu on a placed block: which instance, and where on screen. */
+  contextMenu: { instanceId: string; x: number; y: number } | null;
+  /** Which placed block's own storage (wallet + items) is being viewed/managed. */
+  viewingInstanceInventoryId: string | null;
 }
 
 const firstPlayer = engine.listPlayers()[0];
@@ -27,6 +31,8 @@ export const useGameStore = create<UiState>()(() => ({
   inventoryOpen: false,
   placingInstanceId: null,
   apiHelpOpen: false,
+  contextMenu: null,
+  viewingInstanceInventoryId: null,
 }));
 
 engine.subscribe(() => {
@@ -61,4 +67,28 @@ export function cancelPlacing(): void {
 
 export function toggleApiHelp(): void {
   useGameStore.setState((s) => ({ apiHelpOpen: !s.apiHelpOpen }));
+}
+
+export function openContextMenu(instanceId: string, x: number, y: number): void {
+  useGameStore.setState({ contextMenu: { instanceId, x, y } });
+}
+
+export function closeContextMenu(): void {
+  useGameStore.setState({ contextMenu: null });
+}
+
+export function openMachineInventory(instanceId: string): void {
+  useGameStore.setState({ viewingInstanceInventoryId: instanceId, contextMenu: null });
+}
+
+export function closeMachineInventory(): void {
+  useGameStore.setState({ viewingInstanceInventoryId: null });
+}
+
+/** Move an already-placed block: pick it up then immediately re-enter placement mode for it. */
+export function startMoving(instanceId: string): void {
+  const playerId = useGameStore.getState().currentPlayerId;
+  const result = engine.pickupToInventory(instanceId, playerId);
+  useGameStore.setState({ contextMenu: null });
+  if (result.ok) startPlacing(instanceId);
 }

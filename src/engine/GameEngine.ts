@@ -558,6 +558,7 @@ export class GameEngine {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
     if (inst.ownerId !== playerId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
+    if (!this.defs.get(inst.defId)?.collidable) return { ok: false, reason: "Cet objet simple (sans collision) ne peut pas stocker d'argent" };
     if (!Number.isFinite(amount) || amount <= 0) return { ok: false, reason: "Montant invalide" };
     const player = this.players.get(playerId);
     if (!player || player.money < amount) return { ok: false, reason: "Solde insuffisant" };
@@ -586,6 +587,7 @@ export class GameEngine {
     const inst = this.instances.get(instanceId);
     if (!inst) return { ok: false, reason: "Objet introuvable" };
     if (inst.ownerId !== playerId) return { ok: false, reason: "Vous ne possédez pas cet objet" };
+    if (!this.defs.get(inst.defId)?.collidable) return { ok: false, reason: "Cet objet simple (sans collision) ne peut pas stocker d'objets" };
     const item = this.instances.get(itemInstanceId);
     if (!item || item.location.kind !== "inventory" || item.ownerId !== playerId) {
       return { ok: false, reason: "Vous ne possédez pas cet objet" };
@@ -604,6 +606,9 @@ export class GameEngine {
     return {
       requestMoney: (amount) => {
         if (!playerId) throw new ScriptRuntimeError("Aucun joueur n'est présent pour cette transaction");
+        if (!def.collidable) {
+          return Promise.resolve({ accepted: false, reason: "cet objet est un objet simple (sans collision) : il ne peut pas stocker d'argent" });
+        }
         return this.requestMoneyTransaction(playerId, amount, instance.id, def.name);
       },
       giveItem: (defIdOrName) => {
@@ -612,6 +617,9 @@ export class GameEngine {
       },
       requestObject: (defIdOrName) => {
         if (!playerId) throw new ScriptRuntimeError("Aucun joueur n'est présent pour cette demande");
+        if (!def.collidable) {
+          return Promise.resolve({ accepted: false, reason: "cet objet est un objet simple (sans collision) : il ne peut pas stocker d'objets" });
+        }
         return this.requestObjectTransaction(playerId, defIdOrName, instance.id, def.name);
       },
       spawn: (defIdOrName) => Promise.resolve(this.spawnSensitive(instance, defIdOrName)),

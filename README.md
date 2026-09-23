@@ -23,10 +23,15 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
   clavier (WASD/flèches), collisions avec les objets marqués `collidable`,
   sauvegarde/chargement automatique.
 - **Objets (P1)** — `Object Creator` (bouton « ✨ Créer un objet ») : nom,
-  dimensions (largeur/hauteur/profondeur), collision, propriétés
-  personnalisées, placement depuis l'inventaire par clic au sol. Clic droit
-  sur un objet placé que vous possédez → menu contextuel **Inventaire /
-  Déplacer / Récupérer** (voir plus bas).
+  dimensions (largeur/hauteur/profondeur), propriétés personnalisées,
+  placement depuis l'inventaire par clic au sol. Un objet est soit un
+  **bloc normal** (bloque le passage, peut stocker de l'argent/des objets),
+  soit un **objet simple** — case « Objet simple » cochée dans l'onglet
+  Info : transperçable comme un ticket, et `player.request_money()`/
+  `player.request_object()` (ou un dépôt manuel via le panneau Inventaire)
+  y échouent immédiatement puisqu'il ne peut rien stocker. Clic droit sur
+  un objet placé que vous possédez → menu contextuel **[Inventaire —
+  uniquement pour un bloc] / Déplacer / Récupérer** (voir plus bas).
 - **Textures pixel art (P2)** — chaque objet a sa propre **bibliothèque de
   textures nommées** (onglet Textures : grille de faces + section
   "Bibliothèque" pour créer/renommer/supprimer des textures additionnelles,

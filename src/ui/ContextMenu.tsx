@@ -24,7 +24,7 @@ export function ContextMenu() {
         onClick={(e) => e.stopPropagation()}
       >
         {def && <div className="context-menu__title">{def.name}</div>}
-        <button onClick={() => openMachineInventory(menu.instanceId)}>📦 Inventaire</button>
+        {def?.collidable && <button onClick={() => openMachineInventory(menu.instanceId)}>📦 Inventaire</button>}
         <button onClick={() => startMoving(menu.instanceId)}>✋ Déplacer</button>
         <button onClick={handleRecover} title="Récupère le bloc, son solde et son contenu dans votre inventaire">
           ↩️ Récupérer

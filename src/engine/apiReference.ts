@@ -80,7 +80,7 @@ export const API_REFERENCE: ApiEntry[] = [
     group: "player",
     signature: "player.request_money(montant)",
     description:
-      "Ouvre une demande de paiement que le joueur doit accepter ou refuser. Retourne un objet avec .accepted (booléen) et .reason. Si accepté, le montant est débité du joueur et crédité sur le solde de l'objet (object.get_balance()).",
+      "Ouvre une demande de paiement que le joueur doit accepter ou refuser. Retourne un objet avec .accepted (booléen) et .reason. Si accepté, le montant est débité du joueur et crédité sur le solde de l'objet (object.get_balance()). Échoue immédiatement (sans afficher de modale) si l'objet est \"simple\" (collision décochée dans l'onglet Info) : ces objets ne peuvent pas stocker d'argent.",
     kind: "sensitive",
     example: 'transaction = player.request_money(100)\nif transaction.accepted:\n    player.say("Merci !")',
   },
@@ -88,7 +88,7 @@ export const API_REFERENCE: ApiEntry[] = [
     group: "player",
     signature: "player.request_object(nom_objet)",
     description:
-      "Symétrique de request_money, mais pour un objet : demande au joueur de céder un exemplaire de \"nom_objet\" depuis son inventaire. Si accepté, l'exemplaire est retiré du joueur et stocké dans l'inventaire de cette machine (récupérable ensuite avec object.give_item()). Échoue si le joueur ne possède pas cet objet.",
+      "Symétrique de request_money, mais pour un objet : demande au joueur de céder un exemplaire de \"nom_objet\" depuis son inventaire. Si accepté, l'exemplaire est retiré du joueur et stocké dans l'inventaire de cette machine (récupérable ensuite avec object.give_item()). Échoue si le joueur ne possède pas cet objet, ou immédiatement si l'objet appelant est \"simple\" (collision décochée) : ces objets ne peuvent pas stocker d'objets.",
     kind: "sensitive",
     example: 'demande = player.request_object("Ticket")\nif demande.accepted:\n    player.say("Merci pour le ticket !")',
   },

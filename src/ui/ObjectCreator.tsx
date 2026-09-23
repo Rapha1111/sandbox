@@ -276,11 +276,16 @@ function InfoTab({ def, onPatch }: { def: ObjectDefinition; onPatch: (p: DefPatc
       <label className="object-creator__checkbox">
         <input
           type="checkbox"
-          checked={def.collidable}
-          onChange={(e) => onPatch({ collidable: e.target.checked })}
+          checked={!def.collidable}
+          onChange={(e) => onPatch({ collidable: !e.target.checked })}
         />
-        Collision (bloque le passage)
+        Objet simple (transperçable, comme un ticket)
       </label>
+      <p className="object-creator__hint">
+        {def.collidable
+          ? "Bloc normal : bloque le passage et peut stocker de l'argent/des objets (via player.request_money()/request_object())."
+          : "Objet simple : on marche à travers, et il ne peut pas stocker d'argent ni d'objets."}
+      </p>
 
       <div className="object-creator__props">
         <div className="object-creator__props-header">

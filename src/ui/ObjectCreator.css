@@ -62,6 +62,20 @@
   white-space: nowrap;
 }
 
+.object-creator__id {
+  margin: 0;
+  padding: 0 18px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.object-creator__id code {
+  background: var(--panel-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  user-select: all;
+}
+
 .object-creator__tabs {
   display: flex;
   gap: 4px;

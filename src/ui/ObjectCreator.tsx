@@ -116,6 +116,9 @@ export function ObjectCreator() {
             <button onClick={closeEditor}>Fermer</button>
           </div>
         </div>
+        <p className="object-creator__id" title="Identifiant unique de cet objet — utilisable par les scripts (object.give_item, player.request_object, etc.)">
+          ID : <code>{def.id}</code>
+        </p>
 
         <div className="object-creator__tabs">
           <TabButton active={tab === "info"} onClick={() => setTab("info")} label="Info" />

@@ -15,6 +15,8 @@ export interface SensitiveOutcome {
  * method bottoms out in exactly one of these — nothing else is reachable. */
 export interface ScriptEngineHooks {
   requestMoney(amount: number): Promise<TransactionOutcome>;
+  /** Symmetric to requestMoney: asks the player to hand over one instance of `defIdOrName` instead of coins. */
+  requestObject(defIdOrName: string): Promise<TransactionOutcome>;
   giveItem(defIdOrName: string): Promise<SensitiveOutcome>;
   spawn(defIdOrName: string): Promise<SensitiveOutcome>;
   say(text: string): void;
@@ -29,6 +31,8 @@ export interface ScriptEngineHooks {
   getMoney(): number;
   getName(): string;
   getPlayerId(): string;
+  /** This object instance's own unique, stable identifier. */
+  getInstanceId(): string;
   /** Coins this object has collected via accepted player.request_money() calls. */
   getBalance(): number;
   /** Pays out of the object's own collected balance to any player id — never touches a player's own wallet. */
@@ -61,6 +65,14 @@ export function buildPlayerHost(hooks: ScriptEngineHooks): HostObject {
       const amount = requireNumber(args[0], "player.request_money()", line);
       if (amount <= 0) throw new ScriptRuntimeError("player.request_money() attend un montant positif", line);
       const outcome = await hooks.requestMoney(amount);
+      return hostObject("TransactionResult", {
+        accepted: outcome.accepted,
+        reason: outcome.reason ?? "",
+      });
+    },
+    request_object: async (_i, args, line) => {
+      const name = requireString(args[0], "player.request_object()", line);
+      const outcome = await hooks.requestObject(name);
       return hostObject("TransactionResult", {
         accepted: outcome.accepted,
         reason: outcome.reason ?? "",
@@ -110,6 +122,7 @@ export function buildObjectHost(hooks: ScriptEngineHooks): HostObject {
       if (!result.ok) throw new ScriptRuntimeError(`object.spawn() a échoué: ${result.reason ?? "inconnu"}`, line);
       return null;
     },
+    get_id: () => hooks.getInstanceId(),
     get_balance: () => hooks.getBalance(),
     send_money: (_i, args, line) => {
       const targetPlayerId = requireString(args[0], "object.send_money()", line);

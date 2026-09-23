@@ -51,8 +51,29 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
   empilement d'instances, `player.request_money(montant)` ouvre une modale
   de confirmation ; la transaction (vérification du solde + débit) est
   atomique côté moteur — jamais de duplication/disparition d'argent.
-  `object.give_item(player, "Nom")` crée une nouvelle instance validée par
-  le moteur, jamais directement par le script.
+- **Objets stockés dans les machines** — symétrique à `request_money`,
+  `player.request_object(nom_objet)` demande au joueur de céder un
+  exemplaire depuis son inventaire ; s'il accepte, l'exemplaire est retiré
+  de son inventaire et stocké dans **l'inventaire propre de l'objet
+  (la machine)** qui l'a demandé. `object.give_item(player, nom_objet)` a
+  été retravaillé en conséquence : il donne en priorité un exemplaire déjà
+  en stock dans la machine ; s'il n'y en a pas, il n'en fabrique un nouveau
+  que si le créateur de la machine est aussi le créateur de l'objet donné
+  — impossible donc de faire distribuer à l'infini par une machine la
+  création de quelqu'un d'autre sans qu'elle l'ait réellement en stock.
+  Démonstration : le "Coffre à dons" du monde de départ demande un
+  "Ticket" au joueur via `request_object`.
+- **Identifiants uniques** — chaque définition (`def.id`) et chaque
+  exemplaire placé/possédé (`instance.id`) a un identifiant unique et
+  stable, généré à la création et jamais réutilisé. Visible dans
+  l'onglet Info de l'Object Creator (définition) et en info-bulle sur
+  chaque pile de l'inventaire (exemplaires) ; lisible depuis un script
+  avec `object.get_id()`.
+- **Se donner un objet** — en bas de l'inventaire, un créateur retrouve un
+  sélecteur listant tout ce qu'il a lui-même publié, un compteur de
+  quantité et un bouton « Se le donner » pour ajouter directement des
+  exemplaires à son propre inventaire (utile pour tester, ou pour stocker
+  une machine avant de la placer).
 - **Solde des objets (extension du prototype)** — un objet **conserve
   l'argent qu'il a collecté** : quand une `player.request_money()` est
   acceptée, le montant est crédité sur le solde propre de l'objet
@@ -77,10 +98,11 @@ est sauvegardé dans `localStorage` (débounce 300ms après chaque changement).
   `object.send_money()` ne peut mouvementer que le solde déjà collecté par
   l'objet — il ne peut ni créer d'argent ni débiter un joueur.
 
-Le monde démarre avec 5 objets déjà publiés (Cube Bonjour, Machine à soda,
-Distributeur de tickets, Ticket, Cagnotte) pour illustrer immédiatement le
-flux complet décrit aux §29–31 de la spec ainsi que les textures multiples
-et le solde des objets, tout en laissant le joueur créer les siens.
+Le monde démarre avec 6 objets déjà publiés (Cube Bonjour, Machine à soda,
+Distributeur de tickets, Ticket, Cagnotte, Coffre à dons) pour illustrer
+immédiatement le flux complet décrit aux §29–31 de la spec ainsi que les
+textures multiples, le solde des objets et le stockage d'objets dans une
+machine, tout en laissant le joueur créer les siens.
 
 ## Architecture
 
@@ -130,6 +152,11 @@ plus tard.
    fois, accepter) → le solde du joueur descend de 20 à chaque tour puis
    remonte d'un coup au 5ᵉ (100 coins reversés automatiquement par
    `object.send_money`) → validé de bout en bout (500→480→460→440→420→500).
+7. Objet stocké dans une machine : interagir avec le "Coffre à dons" en
+   ayant un "Ticket" en inventaire → modale "DEMANDE D'OBJET : 1× Ticket"
+   → Accepter → le Ticket disparaît de l'inventaire du joueur (stocké dans
+   le Coffre) ; sans Ticket en poche, la demande est automatiquement
+   refusée avec le message "vous ne possédez pas cet objet".
 
 ## Volontairement non traité dans ce prototype (voir spec §35)
 

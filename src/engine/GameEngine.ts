@@ -247,6 +247,24 @@ export class GameEngine {
       "#a855f7",
       0, 1
     );
+
+    // Demonstrates player.request_object(): asks the player to hand over a "Ticket",
+    // which is then stored in this object's own inventory (object.give_item() would
+    // dispense that exact stocked instance first, before ever minting a new one).
+    publishAt(
+      "Coffre à dons",
+      [
+        "def on_interact(player):",
+        '    demande = player.request_object("Ticket")',
+        "    if demande.accepted:",
+        '        player.say("Merci pour le ticket !")',
+        "    else:",
+        '        player.say("Vous n\'avez pas de Ticket à donner.")',
+        "",
+      ].join("\n"),
+      "#f59e0b",
+      2, 1
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -276,6 +294,18 @@ export class GameEngine {
     const byDef = new Map<ObjectDefId, ObjectInstanceId[]>();
     for (const inst of this.instances.values()) {
       if (inst.location.kind !== "inventory" || inst.ownerId !== playerId) continue;
+      const arr = byDef.get(inst.defId) ?? [];
+      arr.push(inst.id);
+      byDef.set(inst.defId, arr);
+    }
+    return [...byDef.entries()].map(([defId, instanceIds]) => ({ defId, instanceIds }));
+  }
+
+  /** What a placed object instance is holding in its own inventory (spec-extension: player.request_object()). */
+  listInstanceInventory(hostInstanceId: ObjectInstanceId): InventoryStack[] {
+    const byDef = new Map<ObjectDefId, ObjectInstanceId[]>();
+    for (const inst of this.instances.values()) {
+      if (inst.location.kind !== "instance_inventory" || inst.location.hostInstanceId !== hostInstanceId) continue;
       const arr = byDef.get(inst.defId) ?? [];
       arr.push(inst.id);
       byDef.set(inst.defId, arr);
@@ -603,6 +633,10 @@ export class GameEngine {
     const cleanup = def ? this.runEventForInstance(inst, def, "on_destroy", []) : Promise.resolve();
     void cleanup.finally(() => {
       this.instances.delete(instanceId);
+      // Whatever this instance had collected via player.request_object() has nowhere to live anymore.
+      for (const held of this.listInstanceInventory(instanceId)) {
+        for (const heldId of held.instanceIds) this.instances.delete(heldId);
+      }
       this.notify();
     });
     return { ok: true };
@@ -620,7 +654,11 @@ export class GameEngine {
       },
       giveItem: (defIdOrName) => {
         if (!playerId) return Promise.resolve({ ok: false, reason: "Aucun joueur présent" });
-        return Promise.resolve(this.giveItemSensitive(playerId, defIdOrName));
+        return Promise.resolve(this.giveItemSensitive(playerId, defIdOrName, instance));
+      },
+      requestObject: (defIdOrName) => {
+        if (!playerId) throw new ScriptRuntimeError("Aucun joueur n'est présent pour cette demande");
+        return this.requestObjectTransaction(playerId, defIdOrName, instance.id, def.name);
       },
       spawn: (defIdOrName) => Promise.resolve(this.spawnSensitive(instance, defIdOrName)),
       say: (text) => {
@@ -680,6 +718,7 @@ export class GameEngine {
         if (!playerId) throw new ScriptRuntimeError("Aucun joueur présent");
         return playerId;
       },
+      getInstanceId: () => instance.id,
       getBalance: () => instance.wallet ?? 0,
       sendMoney: (targetPlayerId, amount) => this.sendMoneyFromInstance(instance, targetPlayerId, amount),
     };
@@ -812,7 +851,31 @@ export class GameEngine {
     });
   }
 
-  /** Atomic: balance check + debit happen together, or nothing happens (spec §13). */
+  /** Symmetric to requestMoneyTransaction, but asks the player to hand over an object instead of coins. */
+  requestObjectTransaction(playerId: PlayerId, defIdOrName: string, sourceInstanceId: ObjectInstanceId | null, sourceDefName: string): Promise<TransactionOutcome> {
+    const targetDef = this.resolveDefByIdOrName(defIdOrName);
+    if (!targetDef) {
+      return Promise.resolve({ accepted: false, reason: `objet '${defIdOrName}' introuvable` });
+    }
+    this.logAction("player.request_object", `(${targetDef.name}) à ${playerId}`);
+    const tx: PendingTransaction = {
+      id: genId("tx"),
+      kind: "request_object",
+      playerId,
+      objectDefId: targetDef.id,
+      objectDefName: targetDef.name,
+      sourceInstanceId,
+      sourceDefName,
+      createdAt: Date.now(),
+    };
+    this.pendingTransactions.set(tx.id, tx);
+    this.notify();
+    return new Promise<TransactionOutcome>((resolve) => {
+      this.transactionResolvers.set(tx.id, resolve);
+    });
+  }
+
+  /** Atomic: balance check + debit happen together, or nothing happens (spec §13) — likewise for objects. */
   resolveTransaction(txId: string, accepted: boolean): void {
     const tx = this.pendingTransactions.get(txId);
     const resolve = this.transactionResolvers.get(txId);
@@ -820,27 +883,47 @@ export class GameEngine {
     this.pendingTransactions.delete(txId);
     this.transactionResolvers.delete(txId);
 
+    const label = tx.kind === "request_money" ? `${tx.amount} coins` : `1× ${tx.objectDefName}`;
+
     if (!accepted) {
-      this.pushLog("result", `Transaction refusée: ${tx.amount} coins (${tx.sourceDefName})`);
+      this.pushLog("result", `Transaction refusée: ${label} (${tx.sourceDefName})`);
       resolve({ accepted: false, reason: "refusé par le joueur" });
       this.notify();
       return;
     }
 
-    const player = this.players.get(tx.playerId);
-    if (!player || player.money < tx.amount) {
-      this.pushLog("error", `Transaction annulée: solde insuffisant (${tx.sourceDefName})`);
-      resolve({ accepted: false, reason: "solde insuffisant" });
+    if (tx.kind === "request_money") {
+      const player = this.players.get(tx.playerId);
+      if (!player || player.money < (tx.amount ?? 0)) {
+        this.pushLog("error", `Transaction annulée: solde insuffisant (${tx.sourceDefName})`);
+        resolve({ accepted: false, reason: "solde insuffisant" });
+        this.notify();
+        return;
+      }
+      player.money -= tx.amount ?? 0;
+      // The paying object escrows what it collects — object.get_balance()/send_money()
+      // let its script redistribute it later (e.g. pay it back out to a player).
+      const sourceInstance = tx.sourceInstanceId ? this.instances.get(tx.sourceInstanceId) : undefined;
+      if (sourceInstance) sourceInstance.wallet = (sourceInstance.wallet ?? 0) + (tx.amount ?? 0);
+      this.pushLog("result", `-${tx.amount} coins (${tx.sourceDefName})`);
+      resolve({ accepted: true });
       this.notify();
       return;
     }
 
-    player.money -= tx.amount;
-    // The paying object escrows what it collects — object.get_balance()/send_money()
-    // let its script redistribute it later (e.g. pay it back out to a player).
-    const sourceInstance = tx.sourceInstanceId ? this.instances.get(tx.sourceInstanceId) : undefined;
-    if (sourceInstance) sourceInstance.wallet = (sourceInstance.wallet ?? 0) + tx.amount;
-    this.pushLog("result", `-${tx.amount} coins (${tx.sourceDefName})`);
+    // request_object: move one owned instance of the requested definition into the machine's inventory.
+    const owned = [...this.instances.values()].find(
+      (i) => i.location.kind === "inventory" && i.ownerId === tx.playerId && i.defId === tx.objectDefId
+    );
+    if (!owned || !tx.sourceInstanceId) {
+      this.pushLog("error", `Transaction annulée: le joueur n'a pas de "${tx.objectDefName}" (${tx.sourceDefName})`);
+      resolve({ accepted: false, reason: "vous ne possédez pas cet objet" });
+      this.notify();
+      return;
+    }
+    owned.ownerId = null;
+    owned.location = { kind: "instance_inventory", hostInstanceId: tx.sourceInstanceId };
+    this.pushLog("result", `-1× ${tx.objectDefName} (donné à ${tx.sourceDefName})`);
     resolve({ accepted: true });
     this.notify();
   }
@@ -867,12 +950,41 @@ export class GameEngine {
       [...this.defs.values()].find((d) => d.published && d.name.toLowerCase() === defIdOrName.toLowerCase());
   }
 
-  giveItemSensitive(playerId: PlayerId, defIdOrName: string): { ok: boolean; reason?: string } {
-    const def = this.resolveDefByIdOrName(defIdOrName);
-    if (!def || !def.published) return { ok: false, reason: `objet '${defIdOrName}' introuvable` };
-    this.logAction("object.give_item", `(${def.name}) -> ${playerId}`);
-    this.instantiate(def.id, playerId, { kind: "inventory" });
-    this.pushLog("result", `Objet reçu: ${def.name}`);
+  /**
+   * object.give_item(player, nom): prefers handing out a real instance the machine already has
+   * in stock (collected earlier via player.request_object()) — only when nothing is in stock does
+   * it mint a brand new instance, and only if the machine's own creator also created "nom" (spec
+   * §17: a creator keeps control of their design — you can't script a machine that mass-produces
+   * someone else's object out of thin air; you'd have to actually stock it).
+   */
+  giveItemSensitive(playerId: PlayerId, defIdOrName: string, sourceInstance: ObjectInstance): { ok: boolean; reason?: string } {
+    const targetDef = this.resolveDefByIdOrName(defIdOrName);
+    if (!targetDef || !targetDef.published) return { ok: false, reason: `objet '${defIdOrName}' introuvable` };
+    this.logAction("object.give_item", `(${targetDef.name}) -> ${playerId}`);
+
+    const stocked = [...this.instances.values()].find(
+      (i) =>
+        i.location.kind === "instance_inventory" &&
+        i.location.hostInstanceId === sourceInstance.id &&
+        i.defId === targetDef.id
+    );
+    if (stocked) {
+      stocked.ownerId = playerId;
+      stocked.location = { kind: "inventory" };
+      this.pushLog("result", `Objet reçu (en stock): ${targetDef.name}`);
+      this.notify();
+      return { ok: true };
+    }
+
+    const machineDef = this.defs.get(sourceInstance.defId);
+    if (!machineDef || machineDef.creatorId !== targetDef.creatorId) {
+      return {
+        ok: false,
+        reason: `'${targetDef.name}' n'est pas en stock dans cette machine, et seul son créateur peut en fabriquer de nouveaux exemplaires — déposez-en avec player.request_object("${targetDef.name}").`,
+      };
+    }
+    this.instantiate(targetDef.id, playerId, { kind: "inventory" });
+    this.pushLog("result", `Objet reçu (nouvel exemplaire): ${targetDef.name}`);
     this.notify();
     return { ok: true };
   }
@@ -884,6 +996,25 @@ export class GameEngine {
     this.logAction("object.spawn", `(${def.name}) près de ${source.id}`);
     const { houseId, x, z } = source.location;
     this.instantiate(def.id, source.ownerId, { kind: "house", houseId, x: x + 1, y: 0, z, rotationY: 0 });
+    this.notify();
+    return { ok: true };
+  }
+
+  /**
+   * A creator can always produce more copies of their own design directly into their inventory —
+   * this is the UI-driven counterpart to giveItemSensitive's "creator can mint" rule, and how a
+   * creator stocks a machine (self-give, then player.request_object() into it).
+   */
+  selfGiveInstances(playerId: PlayerId, defId: ObjectDefId, quantity: number): { ok: boolean; reason?: string } {
+    const def = this.defs.get(defId);
+    if (!def) return { ok: false, reason: "Objet introuvable" };
+    if (def.creatorId !== playerId) return { ok: false, reason: "Vous n'êtes pas le créateur de cet objet" };
+    if (!def.published) return { ok: false, reason: "Publiez d'abord cet objet" };
+    if (!Number.isFinite(quantity) || quantity < 1 || quantity > 99) {
+      return { ok: false, reason: "Quantité invalide (1 à 99)" };
+    }
+    for (let i = 0; i < quantity; i++) this.instantiate(def.id, playerId, { kind: "inventory" });
+    this.pushLog("result", `${quantity}× "${def.name}" ajouté(s) à l'inventaire (créateur)`);
     this.notify();
     return { ok: true };
   }

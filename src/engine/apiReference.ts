@@ -84,6 +84,14 @@ export const API_REFERENCE: ApiEntry[] = [
     kind: "sensitive",
     example: 'transaction = player.request_money(100)\nif transaction.accepted:\n    player.say("Merci !")',
   },
+  {
+    group: "player",
+    signature: "player.request_object(nom_objet)",
+    description:
+      "Symétrique de request_money, mais pour un objet : demande au joueur de céder un exemplaire de \"nom_objet\" depuis son inventaire. Si accepté, l'exemplaire est retiré du joueur et stocké dans l'inventaire de cette machine (récupérable ensuite avec object.give_item()). Échoue si le joueur ne possède pas cet objet.",
+    kind: "sensitive",
+    example: 'demande = player.request_object("Ticket")\nif demande.accepted:\n    player.say("Merci pour le ticket !")',
+  },
 
   // --- object.* ---
   {
@@ -144,9 +152,16 @@ export const API_REFERENCE: ApiEntry[] = [
   {
     group: "object",
     signature: "object.give_item(player, nom_objet)",
-    description: "Donne une nouvelle instance de l'objet publié \"nom_objet\" au joueur, validé par le moteur.",
+    description:
+      "Donne \"nom_objet\" au joueur. Priorité à un exemplaire déjà en stock dans l'inventaire de cette machine (déposé via player.request_object()) ; s'il n'y en a pas, un nouvel exemplaire n'est fabriqué que si le créateur de cette machine est aussi le créateur de \"nom_objet\" — on ne peut pas distribuer à l'infini la création de quelqu'un d'autre sans l'avoir réellement en stock.",
     kind: "sensitive",
     example: 'object.give_item(player, "Ticket")',
+  },
+  {
+    group: "object",
+    signature: "object.get_id()",
+    description: "Retourne l'identifiant unique de cette instance précise (utile pour la reconnaître, la journaliser, ou la cibler).",
+    kind: "local",
   },
   {
     group: "object",

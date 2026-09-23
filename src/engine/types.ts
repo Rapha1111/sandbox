@@ -70,7 +70,9 @@ export interface ObjectInstance {
   /** Where it lives right now. */
   location:
     | { kind: "inventory" }
-    | { kind: "house"; houseId: HouseId; x: number; y: number; z: number; rotationY: number };
+    | { kind: "house"; houseId: HouseId; x: number; y: number; z: number; rotationY: number }
+    /** Held inside another placed object's own inventory (spec-extension: player.request_object()). */
+    | { kind: "instance_inventory"; hostInstanceId: ObjectInstanceId };
   /** Free-form per-instance state a script can read/write via object.get_state/set_state. */
   state: Record<string, string | number | boolean>;
   /** Coins this instance has collected via accepted player.request_money() calls (spec-extension: an
@@ -101,9 +103,13 @@ export interface House {
 
 export interface PendingTransaction {
   id: string;
-  kind: "request_money";
+  kind: "request_money" | "request_object";
   playerId: PlayerId;
-  amount: number;
+  /** request_money only. */
+  amount?: number;
+  /** request_object only: the definition being requested. */
+  objectDefId?: ObjectDefId;
+  objectDefName?: string;
   sourceInstanceId: ObjectInstanceId | null;
   sourceDefName: string;
   createdAt: number;

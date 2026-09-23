@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { engine, useGameStore, toggleInventory, startPlacing, openEditor } from "../data/store";
 import "./Inventory.css";
 
@@ -27,11 +28,15 @@ export function Inventory() {
             if (!def) return null;
             return (
               <div key={stack.defId} className="inventory__item">
-                <div className="inventory__thumb">
+                <div className="inventory__thumb" title={`Identifiants : ${stack.instanceIds.join(", ")}`}>
                   <TextureThumb defId={def.id} />
                   <span className="inventory__count">×{stack.instanceIds.length}</span>
                 </div>
                 <div className="inventory__name">{def.name}</div>
+                <div className="inventory__id" title={stack.instanceIds[0]}>
+                  #{stack.instanceIds[0].replace("inst_", "")}
+                  {stack.instanceIds.length > 1 ? "…" : ""}
+                </div>
                 <div className="inventory__actions">
                   <button onClick={() => startPlacing(stack.instanceIds[0])}>Placer</button>
                   <button onClick={() => openEditor(def.id)}>Éditer</button>
@@ -40,15 +45,54 @@ export function Inventory() {
             );
           })}
         </div>
+
+        <SelfGivePanel currentPlayerId={currentPlayerId} />
       </div>
+    </div>
+  );
+}
+
+function SelfGivePanel({ currentPlayerId }: { currentPlayerId: string }) {
+  const created = engine.listDefinitionsByCreator(currentPlayerId).filter((d) => d.published);
+  const [selectedDefId, setSelectedDefId] = useState<string>("");
+  const [quantity, setQuantity] = useState(1);
+  const [message, setMessage] = useState<string | null>(null);
+
+  if (created.length === 0) return null;
+  const defId = selectedDefId || created[0].id;
+
+  function handleSelfGive() {
+    const result = engine.selfGiveInstances(currentPlayerId, defId, quantity);
+    setMessage(result.ok ? `✅ ${quantity}× ajouté(s)` : `❌ ${result.reason}`);
+  }
+
+  return (
+    <div className="inventory__selfgive">
+      <div className="inventory__selfgive-header">Se donner un objet (vos créations)</div>
+      <div className="inventory__selfgive-row">
+        <select value={defId} onChange={(e) => setSelectedDefId(e.target.value)}>
+          {created.map((d) => (
+            <option key={d.id} value={d.id}>{d.name}</option>
+          ))}
+        </select>
+        <input
+          type="number"
+          min={1}
+          max={99}
+          value={quantity}
+          onChange={(e) => setQuantity(Math.max(1, Math.min(99, Number(e.target.value) || 1)))}
+        />
+        <button onClick={handleSelfGive}>Se le donner</button>
+      </div>
+      {message && <p className="inventory__selfgive-msg">{message}</p>}
     </div>
   );
 }
 
 function TextureThumb({ defId }: { defId: string }) {
   const def = engine.getDefinition(defId);
-  const texId = def?.textures.front ?? def?.textures.top ?? Object.values(def?.textures ?? {})[0];
-  const tex = texId ? engine.getTexture(texId) : undefined;
+  if (!def) return <div className="inventory__thumb-placeholder">?</div>;
+  const tex = engine.resolveLibraryTexture(def, def.textures.front ?? def.textures.top);
   if (!tex) return <div className="inventory__thumb-placeholder">?</div>;
   return <PixelThumb pixels={tex.pixels} size={tex.size} />;
 }
